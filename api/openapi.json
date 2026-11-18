@@ -40,6 +40,7 @@
             "description": ""
           }
         },
+        "summary": "Readiness: the database (and Redis, when configured) answers.",
         "tags": [
           "health"
         ]
@@ -65,12 +66,20 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/AuthResponseDto"
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/VerificationSentDto"
+                    },
+                    {
+                      "$ref": "#/components/schemas/AuthResponseDto"
+                    }
+                  ]
                 }
               }
             }
           }
         },
+        "summary": "Answers \"check your inbox\" whether or not the email has an account; an invitation link signs in at once.",
         "tags": [
           "auth"
         ]
@@ -86,6 +95,45 @@
             "application/json": {
               "schema": {
                 "$ref": "#/components/schemas/LoginDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/AuthResponseDto"
+                    },
+                    {
+                      "$ref": "#/components/schemas/MfaChallengeDto"
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        },
+        "summary": "Signs in, or asks for a 2FA code (`mfaRequired`). Unverified accounts get 403 `EMAIL_NOT_VERIFIED`.",
+        "tags": [
+          "auth"
+        ]
+      }
+    },
+    "/api/v1/auth/login/2fa": {
+      "post": {
+        "operationId": "AuthController_loginSecondFactor_v1",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SecondFactorDto"
               }
             }
           }
@@ -171,14 +219,28 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/TokenDto"
+                "$ref": "#/components/schemas/VerifyEmailDto"
               }
             }
           }
         },
         "responses": {
-          "204": {
-            "description": ""
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/AuthResponseDto"
+                    },
+                    {
+                      "$ref": "#/components/schemas/PasswordRequiredDto"
+                    }
+                  ]
+                }
+              }
+            }
           }
         },
         "tags": [
@@ -327,6 +389,159 @@
         "responses": {
           "204": {
             "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "auth"
+        ]
+      }
+    },
+    "/api/v1/auth/2fa": {
+      "get": {
+        "operationId": "AuthController_twoFactorStatus_v1",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TwoFactorStatusDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "auth"
+        ]
+      }
+    },
+    "/api/v1/auth/2fa/setup": {
+      "post": {
+        "operationId": "AuthController_setupTwoFactor_v1",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TotpSetupDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "auth"
+        ]
+      }
+    },
+    "/api/v1/auth/2fa/enable": {
+      "post": {
+        "operationId": "AuthController_enableTwoFactor_v1",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TotpCodeDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RecoveryCodesDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "auth"
+        ]
+      }
+    },
+    "/api/v1/auth/2fa/disable": {
+      "post": {
+        "operationId": "AuthController_disableTwoFactor_v1",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DisableTwoFactorDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "204": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "auth"
+        ]
+      }
+    },
+    "/api/v1/auth/2fa/recovery-codes": {
+      "post": {
+        "operationId": "AuthController_regenerateRecoveryCodes_v1",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TotpCodeDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RecoveryCodesDto"
+                }
+              }
+            }
           }
         },
         "security": [
@@ -2835,9 +3050,20 @@
             "name": "offset",
             "required": false,
             "in": "query",
+            "description": "Deprecated: use `cursor`. Offsets skip or repeat rows while tasks change, and get slow on large lists.",
             "schema": {
               "minimum": 0,
               "type": "number"
+            }
+          },
+          {
+            "name": "cursor",
+            "required": false,
+            "in": "query",
+            "description": "`nextCursor` from the previous page (same filters, sort and order). Takes precedence over `offset`.",
+            "schema": {
+              "maxLength": 1000,
+              "type": "string"
             }
           },
           {
@@ -10395,30 +10621,6 @@
       }
     },
     "schemas": {
-      "RegisterDto": {
-        "type": "object",
-        "properties": {
-          "email": {
-            "type": "string",
-            "format": "email"
-          },
-          "name": {
-            "type": "string",
-            "minLength": 1,
-            "maxLength": 100
-          },
-          "password": {
-            "type": "string",
-            "minLength": 8,
-            "maxLength": 128
-          }
-        },
-        "required": [
-          "email",
-          "name",
-          "password"
-        ]
-      },
       "UserDto": {
         "type": "object",
         "properties": {
@@ -10434,6 +10636,9 @@
           "emailVerified": {
             "type": "boolean"
           },
+          "twoFactorEnabled": {
+            "type": "boolean"
+          },
           "createdAt": {
             "format": "date-time",
             "type": "string"
@@ -10444,6 +10649,7 @@
           "email",
           "name",
           "emailVerified",
+          "twoFactorEnabled",
           "createdAt"
         ]
       },
@@ -10462,14 +10668,89 @@
           },
           "refreshToken": {
             "type": "string",
-            "description": "Also returned for non-browser clients; browsers receive it as an httpOnly cookie."
+            "description": "Only for non-browser clients. Browsers (requests with an Origin header) get it solely as the httpOnly `sx_refresh` cookie."
           }
         },
         "required": [
           "user",
           "accessToken",
-          "expiresIn",
-          "refreshToken"
+          "expiresIn"
+        ]
+      },
+      "VerificationSentDto": {
+        "type": "object",
+        "properties": {
+          "verificationSent": {
+            "type": "boolean",
+            "enum": [
+              true
+            ]
+          }
+        },
+        "required": [
+          "verificationSent"
+        ]
+      },
+      "MfaChallengeDto": {
+        "type": "object",
+        "properties": {
+          "mfaRequired": {
+            "type": "boolean",
+            "enum": [
+              true
+            ]
+          },
+          "mfaToken": {
+            "type": "string",
+            "description": "Valid for 5 minutes."
+          }
+        },
+        "required": [
+          "mfaRequired",
+          "mfaToken"
+        ]
+      },
+      "PasswordRequiredDto": {
+        "type": "object",
+        "properties": {
+          "passwordRequired": {
+            "type": "boolean",
+            "enum": [
+              true
+            ]
+          }
+        },
+        "required": [
+          "passwordRequired"
+        ]
+      },
+      "RegisterDto": {
+        "type": "object",
+        "properties": {
+          "email": {
+            "type": "string",
+            "format": "email"
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 100
+          },
+          "password": {
+            "type": "string",
+            "minLength": 8,
+            "maxLength": 128
+          },
+          "invitationToken": {
+            "type": "string",
+            "description": "Token from an invitation link sent to this email: the address counts as verified and you are signed in at once.",
+            "maxLength": 200
+          }
+        },
+        "required": [
+          "email",
+          "name",
+          "password"
         ]
       },
       "LoginDto": {
@@ -10489,6 +10770,24 @@
           "password"
         ]
       },
+      "SecondFactorDto": {
+        "type": "object",
+        "properties": {
+          "mfaToken": {
+            "type": "string",
+            "maxLength": 2000
+          },
+          "code": {
+            "type": "string",
+            "description": "Six-digit code from the authenticator app, or a recovery code (xxxx-xxxx).",
+            "maxLength": 20
+          }
+        },
+        "required": [
+          "mfaToken",
+          "code"
+        ]
+      },
       "RefreshDto": {
         "type": "object",
         "properties": {
@@ -10498,13 +10797,19 @@
           }
         }
       },
-      "TokenDto": {
+      "VerifyEmailDto": {
         "type": "object",
         "properties": {
           "token": {
             "type": "string",
             "minLength": 10,
             "maxLength": 200
+          },
+          "password": {
+            "type": "string",
+            "description": "The password to set; needed when the link is opened outside the browser that registered.",
+            "minLength": 8,
+            "maxLength": 128
           }
         },
         "required": [
@@ -10595,6 +10900,83 @@
           "current"
         ]
       },
+      "TwoFactorStatusDto": {
+        "type": "object",
+        "properties": {
+          "enabled": {
+            "type": "boolean"
+          },
+          "recoveryCodesLeft": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "enabled",
+          "recoveryCodesLeft"
+        ]
+      },
+      "TotpSetupDto": {
+        "type": "object",
+        "properties": {
+          "secret": {
+            "type": "string",
+            "description": "Base32 secret, for typing into the app by hand."
+          },
+          "otpauthUrl": {
+            "type": "string",
+            "description": "otpauth:// link to show as a QR code."
+          }
+        },
+        "required": [
+          "secret",
+          "otpauthUrl"
+        ]
+      },
+      "TotpCodeDto": {
+        "type": "object",
+        "properties": {
+          "code": {
+            "type": "string",
+            "pattern": "^\\s*\\d{6}\\s*$"
+          }
+        },
+        "required": [
+          "code"
+        ]
+      },
+      "RecoveryCodesDto": {
+        "type": "object",
+        "properties": {
+          "recoveryCodes": {
+            "description": "Shown once; each works one time in place of an app code.",
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "recoveryCodes"
+        ]
+      },
+      "DisableTwoFactorDto": {
+        "type": "object",
+        "properties": {
+          "password": {
+            "type": "string",
+            "maxLength": 128
+          },
+          "code": {
+            "type": "string",
+            "description": "Code from the authenticator app, or a recovery code.",
+            "maxLength": 20
+          }
+        },
+        "required": [
+          "password",
+          "code"
+        ]
+      },
       "ApiTokenDto": {
         "type": "object",
         "properties": {
@@ -10621,6 +11003,21 @@
           "createdAt": {
             "format": "date-time",
             "type": "string"
+          },
+          "scopes": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "write",
+                "read"
+              ]
+            }
+          },
+          "workspaceId": {
+            "type": "string",
+            "nullable": true,
+            "description": "The workspace the token is limited to, if any."
           }
         },
         "required": [
@@ -10629,7 +11026,9 @@
           "prefix",
           "lastUsedAt",
           "expiresAt",
-          "createdAt"
+          "createdAt",
+          "scopes",
+          "workspaceId"
         ]
       },
       "CreateApiTokenDto": {
@@ -10642,6 +11041,22 @@
           },
           "expiresAt": {
             "type": "string"
+          },
+          "scopes": {
+            "type": "array",
+            "description": "Default `[\"read\", \"write\"]`. `read` alone only allows GET requests.",
+            "minItems": 1,
+            "items": {
+              "type": "string",
+              "enum": [
+                "read",
+                "write"
+              ]
+            }
+          },
+          "workspaceId": {
+            "type": "string",
+            "description": "Limit the token to one workspace you belong to."
           }
         },
         "required": [
@@ -10675,6 +11090,21 @@
             "format": "date-time",
             "type": "string"
           },
+          "scopes": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "write",
+                "read"
+              ]
+            }
+          },
+          "workspaceId": {
+            "type": "string",
+            "nullable": true,
+            "description": "The workspace the token is limited to, if any."
+          },
           "token": {
             "type": "string",
             "description": "The full token. Shown once."
@@ -10687,6 +11117,8 @@
           "lastUsedAt",
           "expiresAt",
           "createdAt",
+          "scopes",
+          "workspaceId",
           "token"
         ]
       },
@@ -12647,11 +13079,17 @@
           },
           "total": {
             "type": "number"
+          },
+          "nextCursor": {
+            "type": "string",
+            "nullable": true,
+            "description": "Pass as `cursor` to get the next page; `null` on the last page."
           }
         },
         "required": [
           "items",
-          "total"
+          "total",
+          "nextCursor"
         ]
       },
       "BoardStatusDto": {

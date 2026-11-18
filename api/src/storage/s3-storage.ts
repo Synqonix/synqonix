@@ -1,7 +1,7 @@
-import { DeleteObjectCommand, GetObjectCommand, HeadObjectCommand, PutObjectCommand, S3Client } from '@aws-sdk/client-s3';
+import { DeleteObjectCommand, GetObjectCommand, HeadObjectCommand, ListObjectsV2Command, PutObjectCommand, S3Client } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import type { Env } from '../config/env.js';
-import { attachmentDisposition, UPLOAD_CONTENT_TYPE, type PresignedDownload, type PresignedUpload, StorageService } from './storage.service.js';
+import { attachmentDisposition, UPLOAD_CONTENT_TYPE, type PresignedDownload, type PresignedUpload, StorageService, type StoredObject } from './storage.service.js';
 
 type S3Config = Pick<Env, 'S3_ENDPOINT' | 'S3_REGION' | 'S3_BUCKET' | 'S3_ACCESS_KEY_ID' | 'S3_SECRET_ACCESS_KEY' | 'S3_FORCE_PATH_STYLE' | 'PRESIGN_TTL_SECONDS'>;
 
@@ -66,5 +66,14 @@ export class S3Storage extends StorageService {
 
   async delete(key: string): Promise<void> {
     await this.client.send(new DeleteObjectCommand({ Bucket: this.bucket, Key: key }));
+  }
+
+  async *list(): AsyncIterable<StoredObject> {
+    let token: string | undefined;
+    do {
+      const page = await this.client.send(new ListObjectsV2Command({ Bucket: this.bucket, ContinuationToken: token }));
+      for (const o of page.Contents ?? []) if (o.Key) yield { key: o.Key, lastModified: o.LastModified ?? new Date(0) };
+      token = page.IsTruncated ? page.NextContinuationToken : undefined;
+    } while (token);
   }
 }

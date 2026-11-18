@@ -4,10 +4,11 @@ import type { Membership, Prisma, Sprint } from '../generated/prisma/client.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { ProjectAccessService } from '../projects/project-access.service.js';
 import { ActivityService } from '../tasks/activity.service.js';
-import type { BulkResultDto, TaskDetailDto } from '../tasks/dto/task.dto.js';
+import type { BulkResultDto, TaskDetailDto } from '../tasks/dto/task-response.dto.js';
 import { TaskEvents } from '../tasks/events.js';
 import { refInclude, summaryInclude, toRefDto } from '../tasks/task-mapper.js';
 import { taskKey } from '../tasks/task-ref.js';
+import { TaskQueryService } from '../tasks/task-query.service.js';
 import { TasksService } from '../tasks/tasks.service.js';
 import { SprintEvents, type SprintEvent } from './events.js';
 import { SprintTracker } from './sprint-tracker.service.js';
@@ -24,6 +25,7 @@ export class SprintsService {
     private readonly prisma: PrismaService,
     private readonly projects: ProjectAccessService,
     private readonly tasks: TasksService,
+    private readonly taskQuery: TaskQueryService,
     private readonly tracker: SprintTracker,
     private readonly activity: ActivityService,
     private readonly events: EventEmitter2,
@@ -311,7 +313,7 @@ export class SprintsService {
   /** Backlog page data: planned and active sprints with their tasks, then the unplanned backlog. */
   async backlog(m: Membership, projectId: string, q: BacklogQueryDto): Promise<BacklogDto> {
     const { project } = await this.projects.load(m, projectId);
-    const base = await this.tasks.buildWhere(m, { ...q, projectId, excludeSubtasks: true });
+    const base = await this.taskQuery.buildWhere(m, { ...q, projectId, excludeSubtasks: true });
     const limit = Math.min(q.limit ?? 100, 200);
     const order: Prisma.TaskOrderByWithRelationInput[] = [{ position: 'asc' }, { id: 'asc' }];
 
@@ -324,7 +326,7 @@ export class SprintsService {
         const rows = await this.prisma.task.findMany({
           where: { AND: [base, { sprintId: s.id }] }, include: summaryInclude, orderBy: order, take: 500,
         });
-        return { sprint: this.toDto(s, stats.get(s.id)!), tasks: await this.tasks.toDtos(rows) };
+        return { sprint: this.toDto(s, stats.get(s.id)!), tasks: await this.taskQuery.toDtos(rows) };
       }),
     );
 
@@ -344,7 +346,7 @@ export class SprintsService {
     });
     return {
       sprints: sections,
-      backlog: { tasks: await this.tasks.toDtos(rows), total, points: pts._sum.estimate ?? 0 },
+      backlog: { tasks: await this.taskQuery.toDtos(rows), total, points: pts._sum.estimate ?? 0 },
       epics: epics.map(toRefDto),
     };
   }

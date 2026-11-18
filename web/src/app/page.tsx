@@ -1,6 +1,18 @@
+import type { Metadata } from "next";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { ThemeToggle } from "@/components/theme-toggle";
+
+// The public front page: an absolute title and a social preview, since it is what search engines and links show.
+export const metadata: Metadata = {
+  title: { absolute: "Synqonix — project management built for developers" },
+  description: "Tasks, sprints and team chat that come to your editor: plan and track work without leaving VS Code. Self-hostable.",
+  openGraph: {
+    title: "Synqonix — project management built for developers",
+    description: "Tasks, sprints and team chat that come to your editor: plan and track work without leaving VS Code.",
+    type: "website",
+  },
+};
 
 export default function Home() {
   return (

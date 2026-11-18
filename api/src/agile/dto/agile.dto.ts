@@ -5,7 +5,8 @@ import {
   IsString, Max, MaxLength, Min, MinLength, ValidateIf,
 } from 'class-validator';
 import { ReleaseStatus, SnapshotReason, SprintState, TaskType } from '../../generated/prisma/enums.js';
-import { ListTasksQueryDto, TaskDto, TaskRefDto } from '../../tasks/dto/task.dto.js';
+import { ListTasksQueryDto } from '../../tasks/dto/task.dto.js';
+import { TaskDto, TaskRefDto } from '../../tasks/dto/task-response.dto.js';
 
 // ---------------------------------------------------------------- sprints
 
@@ -98,7 +99,7 @@ export class CompleteSprintResultDto {
 // ---------------------------------------------------------------- backlog
 
 export class BacklogQueryDto extends OmitType(ListTasksQueryDto, [
-  'projectId', 'statusId', 'statusCategory', 'sprintId', 'sort', 'order', 'offset', 'excludeSubtasks', 'includeArchived',
+  'projectId', 'statusId', 'statusCategory', 'sprintId', 'sort', 'order', 'offset', 'cursor', 'excludeSubtasks', 'includeArchived',
 ] as const) {
   /** Also list finished tasks that are not in a sprint. */
   @IsOptional() @Transform(({ value }) => value === 'true' || value === true) @IsBoolean() includeDone?: boolean;

@@ -18,10 +18,16 @@ model User {
   name            String
   passwordHash    String
   emailVerifiedAt DateTime?
+  /** TOTP secret, encrypted with ENCRYPTION_KEY; set during setup, active once totpEnabledAt is set. */
+  totpSecret      String?
+  totpEnabledAt   DateTime?
+  /** Last accepted TOTP time step, so a code cannot be replayed. */
+  totpLastStep    Int?
   createdAt       DateTime  @default(now())
   updatedAt       DateTime  @updatedAt
 
   sessions               Session[]
+  recoveryCodes          RecoveryCode[]
   emailTokens            EmailToken[]
   apiTokens              ApiToken[]
   memberships            Membership[]
@@ -36,6 +42,8 @@ model User {
   notificationPreference NotificationPreference?
   notificationMutes      NotificationMute[]
   timeEntries            TimeEntry[]
+  // Trigram index for fuzzy search (pg_trgm, created in the notifications_search migration).
+  @@index([name(ops: raw("gin_trgm_ops"))], type: Gin, map: "User_name_trgm_idx")
 }
 
 /// One login on one device. Refresh tokens rotate within a session.
@@ -44,6 +52,8 @@ model Session {
   userId     String
   userAgent  String?
   ip         String?
+  /** Random id of the browser/device (httpOnly cookie), to recognise sign-ins from new devices. */
+  deviceId   String?
   createdAt  DateTime  @default(now())
   lastUsedAt DateTime  @default(now())
   revokedAt  DateTime?
@@ -52,6 +62,30 @@ model Session {
   refreshTokens RefreshToken[]
 
   @@index([userId])
+  @@index([userId, deviceId])
+}
+
+/** One-time codes that replace a TOTP code when the authenticator is lost. Stored hashed. */
+model RecoveryCode {
+  id       String    @id @default(uuid(7))
+  userId   String
+  codeHash String
+  usedAt   DateTime?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, codeHash])
+}
+
+/**
+ * Failed sign-in attempts per email address, whether or not an account exists, so locking does not
+ * reveal which addresses are registered and works across API instances.
+ */
+model LoginThrottle {
+  email       String    @id
+  failures    Int       @default(0)
+  windowStart DateTime  @default(now())
+  lockedUntil DateTime?
 }
 
 model RefreshToken {
@@ -79,6 +113,14 @@ model EmailToken {
   tokenHash String         @unique
   expiresAt DateTime
   usedAt    DateTime?
+  /** Registration only: the password and name chosen in this registration, applied when the link is used. */
+  pendingPasswordHash String?
+  pendingName         String?
+  /**
+   * Hash of a random value kept in the registering browser's httpOnly cookie. The pending password
+   * only applies when the link is opened there; anywhere else the clicker chooses a password.
+   */
+  pendingNonceHash    String?
   createdAt DateTime       @default(now())
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -97,8 +139,13 @@ model ApiToken {
   expiresAt  DateTime?
   revokedAt  DateTime?
   createdAt  DateTime  @default(now())
+  /** `read` (GET only) and/or `write`. Tokens created before scopes existed have both. */
+  scopes      String[]  @default(["read", "write"])
+  /** When set, the token only works in this workspace. */
+  workspaceId String?
 
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user      User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  workspace Workspace? @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
 
   @@index([userId])
 }
@@ -156,6 +203,7 @@ model Workspace {
   outboundWebhooks    OutboundWebhook[]
   notifications       Notification[]
   githubContributors  GithubContributor[]
+  apiTokens           ApiToken[]
 }
 
 model Membership {
@@ -259,6 +307,8 @@ model Project {
   automationRules   AutomationRule[]
 
   @@unique([workspaceId, key])
+  // Trigram index for fuzzy search (pg_trgm, created in the notifications_search migration).
+  @@index([name(ops: raw("gin_trgm_ops"))], type: Gin, map: "Project_name_trgm_idx")
 }
 
 model ProjectMember {
@@ -420,6 +470,8 @@ model Task {
   @@index([milestoneId])
   @@index([statusId])
   @@index([reporterId])
+  // Trigram index for fuzzy search (pg_trgm, created in the notifications_search migration).
+  @@index([title(ops: raw("gin_trgm_ops"))], type: Gin, map: "Task_title_trgm_idx")
 }
 
 model TaskAssignee {
@@ -800,6 +852,8 @@ model Channel {
   @@unique([workspaceId, slug])
   @@unique([workspaceId, dmKey])
   @@index([workspaceId, type])
+  // Trigram index for fuzzy search (pg_trgm, created in the notifications_search migration).
+  @@index([name(ops: raw("gin_trgm_ops"))], type: Gin, map: "Channel_name_trgm_idx")
 }
 
 model ChannelMember {
@@ -928,6 +982,20 @@ model GithubInstallation {
   repositories LinkedRepository[]
 
   @@index([workspaceId])
+}
+
+/// One in-flight "connect GitHub" attempt: handed to GitHub as `state` and consumed (deleted) on the
+/// way back, so a redirect can be used once and only by the workspace admin who started it.
+model GithubInstallState {
+  id          String   @id @default(uuid(7))
+  /// SHA-256 of the state value (the value itself is never stored).
+  stateHash   String   @unique
+  workspaceId String
+  userId      String
+  expiresAt   DateTime
+  createdAt   DateTime @default(now())
+
+  @@index([expiresAt])
 }
 
 /// A GitHub repository linked to a project, with the project's automation settings for it.

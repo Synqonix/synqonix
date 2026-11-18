@@ -158,12 +158,9 @@ export function BoardView({ state, projectId, activeKey, onOpen }: {
   const [override, setOverride] = useState<{ src: Board | undefined; items: Items } | null>(null);
 
   const filterKey = JSON.stringify(filterParams(state.filters));
-  const query = useQuery(
-    () => api.GET("/api/v1/workspaces/{workspaceId}/projects/{projectId}/board", {
+  const query = useQuery(["/api/v1/workspaces/{workspaceId}/projects/{projectId}/board", "components/views/board:0", ws, projectId, filterKey], () => api.GET("/api/v1/workspaces/{workspaceId}/projects/{projectId}/board", {
       params: { path: { workspaceId: ws, projectId }, query: { ...filterParams(state.filters), limit: 100 } },
-    }),
-    [ws, projectId, filterKey],
-  );
+    }));
   useProjectEvents(projectId, () => { if (!dragging.current) query.reload(); });
 
   const board = query.data;

@@ -1,4 +1,4 @@
-import { Controller, Get, Header, Headers, NotFoundException, ServiceUnavailableException, UnauthorizedException } from '@nestjs/common';
+import { Controller, Get, Header, Headers, Inject, NotFoundException, ServiceUnavailableException, UnauthorizedException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { ApiExcludeEndpoint, ApiTags } from '@nestjs/swagger';
 import { SkipThrottle } from '@nestjs/throttler';
@@ -6,14 +6,20 @@ import { timingSafeEqual } from 'node:crypto';
 import { Public } from '../common/decorators.js';
 import { metrics } from '../common/observability.js';
 import type { Env } from '../config/env.js';
+import type { Redis } from 'ioredis';
 import { PrismaService } from '../prisma/prisma.service.js';
+import { REDIS } from '../redis/redis.tokens.js';
 
 @ApiTags('health')
 @SkipThrottle()
 @Public()
 @Controller()
 export class HealthController {
-  constructor(private readonly prisma: PrismaService, private readonly config: ConfigService<Env, true>) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly config: ConfigService<Env, true>,
+    @Inject(REDIS) private readonly redis: Redis | null,
+  ) {}
 
   /** Readiness: the database answers. Kept at `/health` for existing probes. */
   @Get('health')
@@ -27,14 +33,13 @@ export class HealthController {
     return { status: 'ok' };
   }
 
+  /** Readiness: the database (and Redis, when configured) answers. */
   @Get('health/ready')
   async ready() {
-    try {
-      await this.prisma.$queryRaw`SELECT 1`;
-    } catch {
-      throw new ServiceUnavailableException({ status: 'error', db: 'down' });
-    }
-    return { status: 'ok', db: 'up', uptime: process.uptime() };
+    const db = await this.prisma.$queryRaw`SELECT 1`.then(() => 'up', () => 'down');
+    const redis = this.redis ? await this.redis.ping().then(() => 'up', () => 'down') : undefined;
+    if (db === 'down' || redis === 'down') throw new ServiceUnavailableException({ status: 'error', db, ...(redis && { redis }) });
+    return { status: 'ok', db, ...(redis && { redis }), uptime: process.uptime() };
   }
 
   /** Prometheus metrics; off unless METRICS_TOKEN is set, then bearer-protected. */

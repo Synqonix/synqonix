@@ -20,7 +20,7 @@ const EVENTS = [
 function Deliveries({ hook }: { hook: Hook }) {
   const { workspace } = useWorkspace();
   const path = { workspaceId: workspace.id, webhookId: hook.id };
-  const list = useQuery(() => api.GET("/api/v1/workspaces/{workspaceId}/webhooks/{webhookId}/deliveries", { params: { path } }), [hook.id]);
+  const list = useQuery(["/api/v1/workspaces/{workspaceId}/webhooks/{webhookId}/deliveries", "components/automation/webhooks-card:0", hook.id], () => api.GET("/api/v1/workspaces/{workspaceId}/webhooks/{webhookId}/deliveries", { params: { path } }));
   return (
     <div className="mt-2 grid gap-1 text-xs" aria-label={`Deliveries of ${hook.name}`}>
       {list.data?.length === 0 && <p className="text-muted-foreground">Nothing sent yet.</p>}
@@ -38,8 +38,8 @@ function Deliveries({ hook }: { hook: Hook }) {
 export function WebhooksCard() {
   const { workspace, isAdmin } = useWorkspace();
   const path = { workspaceId: workspace.id };
-  const hooks = useQuery(() => (isAdmin ? api.GET("/api/v1/workspaces/{workspaceId}/webhooks", { params: { path } }) : Promise.resolve({ data: [] as Hook[] })), [workspace.id, isAdmin]);
-  const projects = useQuery(() => api.GET("/api/v1/workspaces/{workspaceId}/projects", { params: { path } }), [workspace.id]);
+  const hooks = useQuery(["/api/v1/workspaces/{workspaceId}/webhooks", "components/automation/webhooks-card:1", workspace.id, isAdmin], () => (isAdmin ? api.GET("/api/v1/workspaces/{workspaceId}/webhooks", { params: { path } }) : Promise.resolve({ data: [] as Hook[] })));
+  const projects = useQuery(["/api/v1/workspaces/{workspaceId}/projects", "components/automation/webhooks-card:2", workspace.id], () => api.GET("/api/v1/workspaces/{workspaceId}/projects", { params: { path } }));
   const [adding, setAdding] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [secret, setSecret] = useState<{ name: string; value: string } | null>(null);

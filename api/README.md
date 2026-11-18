@@ -4,7 +4,7 @@ NestJS + Prisma + PostgreSQL.
 
 ```bash
 cp .env.example .env
-docker compose -f ../docker-compose.dev.yml up -d   # postgres + mailpit
+docker compose -f ../docker-compose.dev.yml up -d   # postgres + dev-remail (local Resend mailbox)
 npm install
 npm run start:dev                                # http://localhost:4000/api/v1/health
 ```

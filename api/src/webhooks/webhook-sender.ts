@@ -33,6 +33,16 @@ export class HttpWebhookSender extends WebhookSender {
     const client = target.protocol === 'https:' ? https : http;
     const allowPrivate = this.allowPrivate;
     return new Promise((resolve, reject) => {
+      let settled = false;
+      // `timeout` below only fires on silence; a receiver that keeps trickling bytes would hold the
+      // delivery forever, so the whole exchange also has a hard deadline.
+      const deadline = setTimeout(() => req.destroy(new Error('Timed out')), timeoutMs);
+      const done = (fn: () => void) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(deadline);
+        fn();
+      };
       const req = client.request(
         target,
         {
@@ -46,12 +56,15 @@ export class HttpWebhookSender extends WebhookSender {
           },
         },
         (res) => {
-          res.resume(); // we only need the status
-          res.on('end', () => resolve({ status: res.statusCode ?? 0 }));
+          // The status is all that matters: answer now and drop the body instead of reading it.
+          const status = res.statusCode ?? 0;
+          done(() => resolve({ status }));
+          res.destroy();
         },
       );
       req.on('timeout', () => req.destroy(new Error('Timed out')));
-      req.on('error', reject);
+      req.on('error', (err) => done(() => reject(err)));
+      req.on('close', () => done(() => reject(new Error('Connection closed before a response'))));
       req.end(body);
     });
   }

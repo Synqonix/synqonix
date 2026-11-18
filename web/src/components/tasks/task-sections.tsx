@@ -385,10 +385,7 @@ export function Attachments({ task, ws, reload }: SectionProps) {
 
 /** Chat messages that mention, were linked to, or created this task. Only conversations the viewer can read appear. */
 export function Discussions({ task, ws }: Pick<SectionProps, "task" | "ws">) {
-  const { data } = useQuery(
-    () => api.GET("/api/v1/workspaces/{workspaceId}/tasks/{taskId}/discussions", { params: { path: { workspaceId: ws, taskId: task.id } } }),
-    [ws, task.id],
-  );
+  const { data } = useQuery(["/api/v1/workspaces/{workspaceId}/tasks/{taskId}/discussions", "components/tasks/task-sections:0", ws, task.id], () => api.GET("/api/v1/workspaces/{workspaceId}/tasks/{taskId}/discussions", { params: { path: { workspaceId: ws, taskId: task.id } } }));
   if (!data || data.length === 0) return null;
   const how = { MENTION: "mentioned", LINKED: "linked", CREATED: "created from" } as const;
   return (

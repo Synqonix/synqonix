@@ -45,7 +45,7 @@ export function TaskDetailView({
 }) {
   const { workspace, members } = useWorkspace();
   const ws = workspace.id;
-  const taskQuery = useQuery(() => api.GET("/api/v1/workspaces/{workspaceId}/tasks/{taskId}", { params: { path: { workspaceId: ws, taskId: taskRef } } }), [ws, taskRef]);
+  const taskQuery = useQuery(["/api/v1/workspaces/{workspaceId}/tasks/{taskId}", "components/tasks/task-detail:0", ws, taskRef], () => api.GET("/api/v1/workspaces/{workspaceId}/tasks/{taskId}", { params: { path: { workspaceId: ws, taskId: taskRef } } }));
   const task = taskQuery.data;
   const [version, setVersion] = useState(0);
   const [error, setError] = useState<string | null>(null);
@@ -57,20 +57,11 @@ export function TaskDetailView({
   const setTitle = (value: string | null) => setTitleDraft(value === null ? null : { ref: taskRef, value });
 
   const projectId = task?.projectId;
-  const project = useQuery(
-    async () => (projectId ? api.GET("/api/v1/workspaces/{workspaceId}/projects/{projectId}", { params: { path: { workspaceId: ws, projectId } } }) : { data: undefined }),
-    [ws, projectId],
-  );
-  const fields = useQuery(
-    async () => (projectId ? api.GET("/api/v1/workspaces/{workspaceId}/projects/{projectId}/custom-fields", { params: { path: { workspaceId: ws, projectId } } }) : { data: undefined }),
-    [ws, projectId],
-  );
-  const allProjects = useQuery(async () => (moving ? api.GET("/api/v1/workspaces/{workspaceId}/projects", { params: { path: { workspaceId: ws } } }) : { data: undefined }), [ws, moving]);
+  const project = useQuery(["/api/v1/workspaces/{workspaceId}/projects/{projectId}", "components/tasks/task-detail:1", ws, projectId], async () => (projectId ? api.GET("/api/v1/workspaces/{workspaceId}/projects/{projectId}", { params: { path: { workspaceId: ws, projectId } } }) : { data: undefined }));
+  const fields = useQuery(["/api/v1/workspaces/{workspaceId}/projects/{projectId}/custom-fields", "components/tasks/task-detail:2", ws, projectId], async () => (projectId ? api.GET("/api/v1/workspaces/{workspaceId}/projects/{projectId}/custom-fields", { params: { path: { workspaceId: ws, projectId } } }) : { data: undefined }));
+  const allProjects = useQuery(["/api/v1/workspaces/{workspaceId}/projects", "components/tasks/task-detail:3", ws, moving], async () => (moving ? api.GET("/api/v1/workspaces/{workspaceId}/projects", { params: { path: { workspaceId: ws } } }) : { data: undefined }));
   const needsEpic = task && (task.type === "STORY" || task.type === "TASK" || task.type === "BUG");
-  const epics = useQuery(
-    async () => (needsEpic && projectId ? api.GET("/api/v1/workspaces/{workspaceId}/tasks", { params: { path: { workspaceId: ws }, query: { projectId, type: "EPIC", limit: 100 } } }) : { data: undefined }),
-    [ws, projectId, needsEpic],
-  );
+  const epics = useQuery(["/api/v1/workspaces/{workspaceId}/tasks", "components/tasks/task-detail:4", ws, projectId, needsEpic], async () => (needsEpic && projectId ? api.GET("/api/v1/workspaces/{workspaceId}/tasks", { params: { path: { workspaceId: ws }, query: { projectId, type: "EPIC", limit: 100 } } }) : { data: undefined }));
 
   // Remember the visit for "Recently viewed" (once per task).
   const taskId = task?.id;

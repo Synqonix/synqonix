@@ -1,12 +1,9 @@
-"use client";
+import type { Metadata } from "next";
+import View from "./view";
 
-import { Suspense } from "react";
-import { ProjectViews } from "@/components/views/project-views";
+export const metadata: Metadata = { title: "Tasks" };
 
-export default function ProjectTasksPage() {
-  return (
-    <Suspense>
-      <ProjectViews />
-    </Suspense>
-  );
+/** Server component for the page metadata; everything interactive lives in the client view. */
+export default function Page() {
+  return <View />;
 }

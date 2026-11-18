@@ -1,7 +1,7 @@
 import { HttpException } from '@nestjs/common';
 import { describe, expect, it, vi } from 'vitest';
 import { AllExceptionsFilter } from './all-exceptions.filter.js';
-import { Metrics, writeLog } from './observability.js';
+import { loggablePath, Metrics, writeLog } from './observability.js';
 
 describe('Metrics', () => {
   it('counts by method and status class and renders Prometheus text', () => {
@@ -45,5 +45,14 @@ describe('AllExceptionsFilter', () => {
     const { status, json } = run(new Error('relation "User" does not exist'));
     expect(status).toHaveBeenCalledWith(500);
     expect(json).toHaveBeenCalledWith({ statusCode: 500, message: 'Internal server error', requestId: 'req-1' });
+  });
+});
+
+describe('loggablePath', () => {
+  it('drops the query string and hides invitation tokens', () => {
+    expect(loggablePath('/api/v1/invitations/abc123secret/accept?x=1')).toBe('/api/v1/invitations/:token/accept');
+    expect(loggablePath('/api/v1/invitations/abc123secret')).toBe('/api/v1/invitations/:token');
+    expect(loggablePath('/api/v1/INVITATIONS/abc123secret/accept')).toBe('/api/v1/INVITATIONS/:token/accept');
+    expect(loggablePath('/api/v1/tasks?q=1')).toBe('/api/v1/tasks');
   });
 });

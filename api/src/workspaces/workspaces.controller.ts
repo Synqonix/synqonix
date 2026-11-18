@@ -26,8 +26,10 @@ export class WorkspacesController {
 
   @Get()
   @ApiOkResponse({ type: [WorkspaceDto] })
-  list(@CurrentUser() user: AuthUser) {
-    return this.workspaces.listMine(user.id);
+  async list(@CurrentUser() user: AuthUser) {
+    const all = await this.workspaces.listMine(user.id);
+    // A workspace-bound API token only sees its own workspace.
+    return user.tokenWorkspaceId ? all.filter((w) => w.id === user.tokenWorkspaceId) : all;
   }
 
   @ApiParam({ name: 'workspaceId', type: String })

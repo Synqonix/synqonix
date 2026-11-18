@@ -4,7 +4,7 @@ import {
   MinLength, ValidateIf,
 } from 'class-validator';
 import { ChannelRole, ChannelType, TaskLinkSource } from '../../generated/prisma/enums.js';
-import { TaskRefDto } from '../../tasks/dto/task.dto.js';
+import { TaskRefDto } from '../../tasks/dto/task-response.dto.js';
 
 const toBool = ({ value }: { value: unknown }) => value === 'true' || value === true;
 const toInt = ({ value }: { value: unknown }) => (value === undefined || value === '' ? undefined : Number(value));

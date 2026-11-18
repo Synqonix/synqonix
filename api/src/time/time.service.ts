@@ -1,12 +1,13 @@
 import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import type { Membership, Prisma } from '../generated/prisma/client.js';
 import { PrismaService } from '../prisma/prisma.service.js';
+import { ProjectAccessService } from '../projects/project-access.service.js';
 import { TaskAccessService } from '../tasks/task-access.service.js';
 import { taskKey } from '../tasks/task-ref.js';
 import { timeSpentByTask } from '../tasks/time-spent.js';
 import type { LogTimeDto, TaskTimeDto, TimeEntryDto, TimerDto, UpdateTimeEntryDto } from './dto/time.dto.js';
 
-const include = { task: { select: { id: true, number: true, title: true, project: { select: { key: true, workspaceId: true } } } }, user: { select: { id: true, name: true } } } satisfies Prisma.TimeEntryInclude;
+const include = { task: { select: { id: true, projectId: true, number: true, title: true, project: { select: { key: true, workspaceId: true } } } }, user: { select: { id: true, name: true } } } satisfies Prisma.TimeEntryInclude;
 type Row = Prisma.TimeEntryGetPayload<{ include: typeof include }>;
 
 const isUnique = (e: unknown) => (e as { code?: string }).code === 'P2002';
@@ -17,12 +18,33 @@ export class TimeService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly access: TaskAccessService,
+    private readonly projects: ProjectAccessService,
   ) {}
 
-  private toDto(r: Row, now: Date): TimeEntryDto {
+  /**
+   * Projects among these entries' tasks the person can no longer see (removed from a private
+   * project, say). Their own entries stay, but must not reveal the task's current title or key.
+   */
+  private async hiddenProjectIds(userId: string, rows: Row[]): Promise<Set<string>> {
+    const projectIds = [...new Set(rows.map((r) => r.task.projectId))];
+    if (projectIds.length === 0) return new Set();
+    const memberships = await this.prisma.membership.findMany({ where: { userId, workspaceId: { in: [...new Set(rows.map((r) => r.task.project.workspaceId))] } } });
+    const visible = memberships.length === 0 ? [] : await this.prisma.project.findMany({
+      where: { id: { in: projectIds }, OR: memberships.map((m) => ({ workspaceId: m.workspaceId, ...this.projects.visibleProjects(m) })) }, select: { id: true },
+    });
+    const ok = new Set(visible.map((p) => p.id));
+    return new Set(projectIds.filter((id) => !ok.has(id)));
+  }
+
+  private async dtos(userId: string, rows: Row[], now: Date): Promise<TimeEntryDto[]> {
+    const hidden = await this.hiddenProjectIds(userId, rows);
+    return rows.map((r) => this.toDto(r, now, hidden.has(r.task.projectId)));
+  }
+
+  private toDto(r: Row, now: Date, redact = false): TimeEntryDto {
     const running = r.endedAt === null;
     return {
-      id: r.id, taskId: r.taskId, taskKey: taskKey(r.task.project.key, r.task.number), taskTitle: r.task.title, userId: r.userId, userName: r.user.name,
+      id: r.id, taskId: r.taskId, taskKey: redact ? 'Restricted' : taskKey(r.task.project.key, r.task.number), taskTitle: redact ? 'Task you can no longer access' : r.task.title, userId: r.userId, userName: r.user.name,
       startedAt: r.startedAt, endedAt: r.endedAt, minutes: running ? minutesBetween(r.startedAt, now) : r.minutes, running, note: r.note,
     };
   }
@@ -76,12 +98,19 @@ export class TimeService {
 
   async timer(m: Membership, now = new Date()): Promise<TimerDto> {
     const row = await this.prisma.timeEntry.findFirst({ where: { userId: m.userId, endedAt: null, task: { project: { workspaceId: m.workspaceId } } }, include });
-    return { entry: row ? this.toDto(row, now) : null };
+    return { entry: row ? (await this.dtos(m.userId, [row], now))[0] : null };
   }
 
-  /** Closes the person's running timer (in any workspace), dropping it if it ran for under a minute. */
-  private async stopRunning(userId: string, now: Date): Promise<Row | null> {
-    const running = await this.prisma.timeEntry.findFirst({ where: { userId, endedAt: null }, include });
+  /**
+   * Closes the person's running timer, dropping it if it ran for under a minute. A full session
+   * may close the timer of any workspace (there is only one per person); a credential bound to one
+   * workspace may only touch a timer running in that workspace.
+   */
+  private async stopRunning(userId: string, now: Date, onlyWorkspaceId?: string): Promise<Row | null> {
+    const running = await this.prisma.timeEntry.findFirst({
+      where: { userId, endedAt: null, ...(onlyWorkspaceId && { task: { project: { workspaceId: onlyWorkspaceId } } }) },
+      include,
+    });
     if (!running) return null;
     const minutes = minutesBetween(running.startedAt, now);
     if (minutes < 1) {
@@ -91,9 +120,16 @@ export class TimeService {
     return this.prisma.timeEntry.update({ where: { id: running.id }, data: { endedAt: now, minutes: Math.min(minutes, 1440) }, include });
   }
 
-  async start(m: Membership, ref: string, now = new Date()): Promise<TimerDto> {
+  async start(m: Membership, ref: string, now = new Date(), opts: { boundToWorkspace?: boolean } = {}): Promise<TimerDto> {
     const { task } = await this.access.load(m, ref, { write: true });
-    await this.stopRunning(m.userId, now);
+    if (opts.boundToWorkspace) {
+      // Not this credential's business: it must not end (or learn about) a timer elsewhere.
+      const elsewhere = await this.prisma.timeEntry.findFirst({
+        where: { userId: m.userId, endedAt: null, NOT: { task: { project: { workspaceId: m.workspaceId } } } }, select: { id: true },
+      });
+      if (elsewhere) throw new ConflictException('A timer is already running');
+    }
+    await this.stopRunning(m.userId, now, opts.boundToWorkspace ? m.workspaceId : undefined);
     try {
       const row = await this.prisma.timeEntry.create({ data: { taskId: task.id, userId: m.userId, startedAt: now }, include });
       return { entry: this.toDto(row, now) };
@@ -103,9 +139,9 @@ export class TimeService {
     }
   }
 
-  async stop(m: Membership, now = new Date()): Promise<TimeEntryDto | null> {
-    const row = await this.stopRunning(m.userId, now);
-    return row ? this.toDto(row, now) : null;
+  async stop(m: Membership, now = new Date(), opts: { boundToWorkspace?: boolean } = {}): Promise<TimeEntryDto | null> {
+    const row = await this.stopRunning(m.userId, now, opts.boundToWorkspace ? m.workspaceId : undefined);
+    return row ? (await this.dtos(m.userId, [row], now))[0] : null;
   }
 
   /** The caller's own entries in a period (default: the last 7 days) across the workspace. */
@@ -117,6 +153,6 @@ export class TimeService {
       },
       include, orderBy: { startedAt: 'desc' }, take: 500,
     });
-    return rows.map((r) => this.toDto(r, now));
+    return this.dtos(m.userId, rows, now);
   }
 }

@@ -660,4 +660,71 @@ describe('Tasks (e2e)', () => {
       await http().delete(api(`/projects/${syn.id}/statuses/${status('In Progress')}`)).set(alice.auth).expect(204);
     });
   });
+
+  describe('cursor pagination', () => {
+    type Page = { items: { key: string }[]; total: number; nextCursor: string | null };
+    const SORTS = ['createdAt', 'updatedAt', 'dueDate', 'startDate', 'priority', 'number', 'position', 'title'] as const;
+    const list = (query: string) => http().get(api(`/tasks?projectId=${syn.id}&${query}`)).set(alice.auth);
+
+    beforeEach(async () => {
+      // Duplicated titles, priorities and dates (ties), and missing dates (nulls), so every rule is exercised.
+      const specs = [
+        { title: 'Beta', priority: 'HIGH', dueDate: '2026-12-01', startDate: '2026-11-01' },
+        { title: 'Alpha', priority: 'NONE' },
+        { title: 'Beta', priority: 'HIGH', dueDate: '2026-12-01' },
+        { title: 'Gamma', priority: 'URGENT', dueDate: '2026-11-20', startDate: '2026-11-01' },
+        { title: 'alpha', priority: 'LOW' },
+        { title: 'Delta', priority: 'MEDIUM', dueDate: '2027-01-15' },
+        { title: 'Beta', priority: 'NONE', startDate: '2026-10-01' },
+      ];
+      for (const body of specs) await mk(alice, body);
+    });
+
+    it('pages through every sort and order exactly like one unpaginated request', async () => {
+      for (const sort of SORTS) {
+        for (const order of ['asc', 'desc'] as const) {
+          const all = (await list(`sort=${sort}&order=${order}&limit=200`).expect(200)).body;
+          expect(all.nextCursor).toBeNull();
+          const seen: string[] = [];
+          let cursor: string | null = null;
+          do {
+            const page: Page = (await list(`sort=${sort}&order=${order}&limit=2${cursor ? `&cursor=${cursor}` : ''}`).expect(200)).body;
+            expect(page.total).toBe(all.total);
+            seen.push(...page.items.map((t: { key: string }) => t.key));
+            cursor = page.nextCursor;
+          } while (cursor);
+          expect(seen, `${sort} ${order}`).toEqual(all.items.map((t: { key: string }) => t.key));
+        }
+      }
+    });
+
+    it('does not repeat or skip tasks when one is added in front while paging', async () => {
+      const first = (await list('sort=createdAt&order=asc&limit=3').expect(200)).body;
+      await mk(alice, { title: 'Added while paging' }); // sorts after everything; offsets would shift instead
+      const rest: string[] = [];
+      let cursor: string | null = first.nextCursor;
+      while (cursor) {
+        const page: Page = (await list(`sort=createdAt&order=asc&limit=3&cursor=${cursor}`).expect(200)).body;
+        rest.push(...page.items.map((t: { key: string }) => t.key));
+        cursor = page.nextCursor;
+      }
+      const keys = [...first.items.map((t: { key: string }) => t.key), ...rest];
+      expect(new Set(keys).size).toBe(keys.length);
+      expect(keys).toHaveLength(8);
+    });
+
+    it('rejects broken cursors and cursors from another sort', async () => {
+      const page = (await list('sort=title&order=asc&limit=2').expect(200)).body;
+      await list('sort=title&order=asc&cursor=not-a-cursor').expect(400);
+      await list(`sort=title&order=desc&cursor=${page.nextCursor}`).expect(400);
+      await list(`sort=number&order=asc&cursor=${page.nextCursor}`).expect(400);
+    });
+
+    it('still accepts offsets', async () => {
+      const all = (await list('sort=number&order=asc&limit=200').expect(200)).body;
+      const page = (await list('sort=number&order=asc&limit=2&offset=2').expect(200)).body;
+      expect(page.items.map((t: { key: string }) => t.key)).toEqual(all.items.slice(2, 4).map((t: { key: string }) => t.key));
+      expect(page.nextCursor).toBeTruthy();
+    });
+  });
 });

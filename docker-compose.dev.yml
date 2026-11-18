@@ -1,4 +1,4 @@
-# Development infrastructure only: Postgres and a local mail inbox (Mailpit). You run the API and web app yourself.
+# Development infrastructure only: Postgres and a local Resend-compatible mailbox (Dev-Remail). You run the API and web app yourself.
 #   docker compose -f docker-compose.dev.yml up -d
 # To run the whole app in containers instead, use docker-compose.yml.
 services:
@@ -8,15 +8,33 @@ services:
       POSTGRES_USER: synqonix
       POSTGRES_PASSWORD: synqonix
       POSTGRES_DB: synqonix
-    ports: ["5432:5432"]
+    ports: ["127.0.0.1:5432:5432"]
     volumes: [pgdata:/var/lib/postgresql/data]
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U synqonix"]
       interval: 5s
       timeout: 3s
       retries: 10
-  mailpit:
-    image: axllent/mailpit
-    ports: ["1025:1025", "8025:8025"]
+  # Dev-Remail: a local, Resend-compatible mailbox. The API sends with the same Resend SDK as in
+  # production; read the mail at http://localhost:6245. It has no login, so it stays on localhost.
+  dev-remail:
+    image: abdullahqasim01/dev-remail:0.1.0
+    ports: ["127.0.0.1:6245:6245"]
+    volumes: [devremail:/data]
+  # Like Resend, Dev-Remail only sends from registered domains: register MAIL_FROM's domain once.
+  # (A second run answers "already registered", which is fine.)
+  dev-remail-setup:
+    image: curlimages/curl:8.11.1
+    depends_on:
+      dev-remail: { condition: service_healthy }
+    restart: "no"
+    command: ["-sS", "-X", "POST", "http://dev-remail:6245/domains", "-H", "Authorization: Bearer re_dev", "-H", "Content-Type: application/json", "-d", "{\"name\":\"synqonix.local\"}"]
+  # Optional, for trying several API instances (REDIS_URL=redis://localhost:6379):
+  #   docker compose -f docker-compose.dev.yml --profile redis up -d
+  redis:
+    image: redis:7.4-alpine
+    profiles: [redis]
+    ports: ["127.0.0.1:${REDIS_PORT:-6379}:6379"]
 volumes:
   pgdata:
+  devremail:

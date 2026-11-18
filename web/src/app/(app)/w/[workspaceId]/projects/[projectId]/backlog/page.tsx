@@ -1,17 +1,9 @@
-"use client";
+import type { Metadata } from "next";
+import View from "./view";
 
-import { Suspense } from "react";
-import { BacklogView } from "@/components/agile/backlog-view";
-import { useProject } from "@/components/workspace/project-context";
+export const metadata: Metadata = { title: "Backlog" };
 
-export default function BacklogPage() {
-  const { project } = useProject();
-  if (project.methodology !== "SCRUM") {
-    return <p className="text-sm text-muted-foreground">This project uses Kanban, so there are no sprints. Switch to Scrum in the project settings to plan sprints.</p>;
-  }
-  return (
-    <Suspense>
-      <BacklogView />
-    </Suspense>
-  );
+/** Server component for the page metadata; everything interactive lives in the client view. */
+export default function Page() {
+  return <View />;
 }

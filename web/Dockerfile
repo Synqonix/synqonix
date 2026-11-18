@@ -8,9 +8,13 @@ COPY . .
 # web/.env.production (Next.js reads that file while building); an argument wins over the file.
 ARG NEXT_PUBLIC_API_URL
 ARG NEXT_PUBLIC_STORAGE_URL
+ARG NEXT_PUBLIC_SENTRY_DSN
+ARG NEXT_PUBLIC_SENTRY_ENVIRONMENT
 # An empty argument must not shadow the file, so unset it unless a value was given.
 RUN if [ -z "$NEXT_PUBLIC_API_URL" ]; then unset NEXT_PUBLIC_API_URL; fi; \
     if [ -z "$NEXT_PUBLIC_STORAGE_URL" ]; then unset NEXT_PUBLIC_STORAGE_URL; fi; \
+    if [ -z "$NEXT_PUBLIC_SENTRY_DSN" ]; then unset NEXT_PUBLIC_SENTRY_DSN; fi; \
+    if [ -z "$NEXT_PUBLIC_SENTRY_ENVIRONMENT" ]; then unset NEXT_PUBLIC_SENTRY_ENVIRONMENT; fi; \
     npm run build
 
 FROM node:22-alpine

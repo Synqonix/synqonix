@@ -28,8 +28,8 @@ export function TimeTracking({ taskId, taskKey, ws, canEdit, estimate, onChanged
   taskId: string; taskKey: string; ws: string; canEdit: boolean; estimate: number | null; onChanged(): void;
 }) {
   const path = { workspaceId: ws, taskId };
-  const data = useQuery(() => api.GET("/api/v1/workspaces/{workspaceId}/tasks/{taskId}/time", { params: { path } }), [ws, taskId]);
-  const timer = useQuery(() => api.GET("/api/v1/workspaces/{workspaceId}/time/timer", { params: { path: { workspaceId: ws } } }), [ws, taskId]);
+  const data = useQuery(["/api/v1/workspaces/{workspaceId}/tasks/{taskId}/time", "components/time/time-tracking:0", ws, taskId], () => api.GET("/api/v1/workspaces/{workspaceId}/tasks/{taskId}/time", { params: { path } }));
+  const timer = useQuery(["/api/v1/workspaces/{workspaceId}/time/timer", "components/time/time-tracking:1", ws, taskId], () => api.GET("/api/v1/workspaces/{workspaceId}/time/timer", { params: { path: { workspaceId: ws } } }));
   const [duration, setDuration] = useState("");
   const [note, setNote] = useState("");
   const [est, setEst] = useState<string | null>(null);
@@ -131,7 +131,7 @@ export function TimeTracking({ taskId, taskKey, ws, canEdit, estimate, onChanged
 
 /** Header pill for a running timer anywhere in the workspace. */
 export function TimerPill({ ws }: { ws: string }) {
-  const timer = useQuery(() => api.GET("/api/v1/workspaces/{workspaceId}/time/timer", { params: { path: { workspaceId: ws } } }), [ws]);
+  const timer = useQuery(["/api/v1/workspaces/{workspaceId}/time/timer", "components/time/time-tracking:2", ws], () => api.GET("/api/v1/workspaces/{workspaceId}/time/timer", { params: { path: { workspaceId: ws } } }));
   const entry = timer.data?.entry;
   const elapsed = useElapsed(entry?.startedAt);
   const { reload } = timer;

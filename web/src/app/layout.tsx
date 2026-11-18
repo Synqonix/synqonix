@@ -2,11 +2,13 @@ import type { Metadata } from "next";
 import { headers } from "next/headers";
 import { ThemeProvider } from "@/components/theme-provider";
 import { AuthProvider } from "@/lib/auth/auth-context";
+import { QueryProvider } from "@/lib/query-provider";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Synqonix",
-  description: "Project management built for developers",
+  // Pages set their own title; it is shown as "Sign in · Synqonix".
+  title: { template: "%s · Synqonix", default: "Synqonix" },
+  description: "Project management built for developers: tasks, sprints and team chat, right inside VS Code.",
 };
 
 // Reading the per-request nonce makes every page render on request, which is what a nonce-based CSP needs.
@@ -16,7 +18,9 @@ export default async function RootLayout({ children }: LayoutProps<"/">) {
     <html lang="en" suppressHydrationWarning className="h-full antialiased">
       <body className="min-h-full flex flex-col">
         <ThemeProvider nonce={nonce} attribute="class" defaultTheme="system" enableSystem>
-          <AuthProvider>{children}</AuthProvider>
+          <QueryProvider>
+            <AuthProvider>{children}</AuthProvider>
+          </QueryProvider>
         </ThemeProvider>
       </body>
     </html>

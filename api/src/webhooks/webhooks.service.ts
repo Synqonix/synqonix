@@ -1,11 +1,13 @@
 import { BadRequestException, ConflictException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Cron, CronExpression } from '@nestjs/schedule';
+import { HOLD, RunOnce } from '../redis/job-lock.js';
 import { randomUUID } from 'node:crypto';
 import type { Env } from '../config/env.js';
-import type { Membership, OutboundWebhook, Prisma } from '../generated/prisma/client.js';
+import type { Membership, OutboundDelivery, OutboundWebhook, Prisma } from '../generated/prisma/client.js';
 import { PrismaService } from '../prisma/prisma.service.js';
-import { decryptSecret, encryptSecret, newSecret, signPayload } from './crypto.js';
+import { encryptionSecrets, SecretBox } from '../common/secret-box.js';
+import { newSecret, signPayload } from './crypto.js';
 import type {
   CreatedWebhookDto, CreateWebhookDto, DeliveryDto, TestResultDto, UpdateWebhookDto, WebhookDto, WebhookEvent,
 } from './dto/webhooks.dto.js';
@@ -19,6 +21,10 @@ export const MAX_ATTEMPTS = RETRY_DELAYS_MS.length + 1;
 /** Consecutive deliveries that were given up on before the webhook turns itself off. */
 export const MAX_FAILURES = 10;
 const TIMEOUT_MS = 10_000;
+/** Deliveries sent at the same time. */
+const DELIVERY_CONCURRENCY = 8;
+
+type DueDelivery = OutboundDelivery & { webhook: OutboundWebhook };
 
 const toDto = (w: OutboundWebhook): WebhookDto => ({
   id: w.id, name: w.name, url: w.url, events: w.events, projectId: w.projectId, active: w.active, failureCount: w.failureCount,
@@ -28,7 +34,7 @@ const toDto = (w: OutboundWebhook): WebhookDto => ({
 @Injectable()
 export class WebhooksService {
   private readonly logger = new Logger(WebhooksService.name);
-  private readonly appSecret: string;
+  private readonly box: SecretBox;
   private readonly allowPrivate: boolean;
 
   constructor(
@@ -36,7 +42,11 @@ export class WebhooksService {
     private readonly sender: WebhookSender,
     config: ConfigService<Env, true>,
   ) {
-    this.appSecret = config.get('JWT_REFRESH_SECRET');
+    // Webhooks created before ENCRYPTION_KEY existed were encrypted with JWT_REFRESH_SECRET; still read those.
+    this.box = new SecretBox('webhook-secrets', encryptionSecrets(
+      { ENCRYPTION_KEY: config.get('ENCRYPTION_KEY'), ENCRYPTION_KEY_PREVIOUS: config.get('ENCRYPTION_KEY_PREVIOUS') },
+      config.get('JWT_REFRESH_SECRET'),
+    ));
     this.allowPrivate = config.get('WEBHOOKS_ALLOW_PRIVATE_TARGETS') === '1';
   }
 
@@ -67,7 +77,7 @@ export class WebhooksService {
     const row = await this.prisma.outboundWebhook.create({
       data: {
         workspaceId: m.workspaceId, projectId: dto.projectId ?? null, name: dto.name.trim(), url: dto.url, events: [...new Set(dto.events)],
-        secret: encryptSecret(secret, this.appSecret), createdById: m.userId,
+        secret: this.box.encrypt(secret), createdById: m.userId,
       },
     });
     return { ...toDto(row), secret };
@@ -96,7 +106,7 @@ export class WebhooksService {
   async rotateSecret(m: Membership, id: string): Promise<CreatedWebhookDto> {
     await this.load(m, id);
     const secret = newSecret();
-    return { ...toDto(await this.prisma.outboundWebhook.update({ where: { id }, data: { secret: encryptSecret(secret, this.appSecret) } })), secret };
+    return { ...toDto(await this.prisma.outboundWebhook.update({ where: { id }, data: { secret: this.box.encrypt(secret) } })), secret };
   }
 
   async remove(m: Membership, id: string) {
@@ -157,7 +167,7 @@ export class WebhooksService {
 
   private post(w: OutboundWebhook, event: string, deliveryId: string, body: string) {
     const timestamp = Math.floor(Date.now() / 1000);
-    const secret = decryptSecret(w.secret, this.appSecret);
+    const secret = this.box.decrypt(w.secret);
     return this.sender.send({
       url: w.url, timeoutMs: TIMEOUT_MS, body,
       headers: {
@@ -167,48 +177,61 @@ export class WebhooksService {
     });
   }
 
+  private loadDue(now: Date) {
+    return this.prisma.outboundDelivery.findMany({
+      where: { status: 'PENDING', nextAttemptAt: { lte: now }, webhook: { active: true } }, orderBy: { nextAttemptAt: 'asc' }, take: 50, include: { webhook: true },
+    });
+  }
+
   /**
    * Attempts the deliveries that are due. Each is claimed by bumping `attempts` only if nobody else
    * did, so concurrent workers never send the same attempt twice. Failures back off (1m, 5m, 30m,
    * 2h, 6h) and are then given up on; a webhook whose deliveries keep failing switches itself off.
    */
   async deliverDue(now = new Date()): Promise<number> {
-    const due = await this.prisma.outboundDelivery.findMany({
-      where: { status: 'PENDING', nextAttemptAt: { lte: now }, webhook: { active: true } }, orderBy: { nextAttemptAt: 'asc' }, take: 50, include: { webhook: true },
-    });
+    const due = await this.loadDue(now);
     let sent = 0;
-    for (const d of due) {
-      const claimed = await this.prisma.outboundDelivery.updateMany({ where: { id: d.id, status: 'PENDING', attempts: d.attempts }, data: { attempts: { increment: 1 } } });
-      if (claimed.count === 0) continue;
-      const attempts = d.attempts + 1;
-      let status: number | null = null;
-      let error: string | null = null;
-      try {
-        status = (await this.post(d.webhook, d.event, d.id, JSON.stringify(d.payload))).status;
-        if (status < 200 || status >= 300) error = `The endpoint answered ${status}`;
-      } catch (e) {
-        error = (e as Error).message;
-      }
-      sent++;
-      if (!error) {
-        await this.prisma.$transaction([
-          this.prisma.outboundDelivery.update({ where: { id: d.id }, data: { status: 'SUCCESS', responseStatus: status, error: null, deliveredAt: now } }),
-          this.prisma.outboundWebhook.update({ where: { id: d.webhookId }, data: { failureCount: 0, lastSuccessAt: now } }),
-        ]);
-      } else if (attempts < MAX_ATTEMPTS) {
-        await this.prisma.outboundDelivery.update({ where: { id: d.id }, data: { responseStatus: status, error, nextAttemptAt: new Date(now.getTime() + RETRY_DELAYS_MS[attempts - 1]) } });
-      } else {
-        const hook = await this.prisma.outboundWebhook.update({ where: { id: d.webhookId }, data: { failureCount: { increment: 1 } } });
-        await this.prisma.outboundDelivery.update({ where: { id: d.id }, data: { status: 'FAILED', responseStatus: status, error } });
-        if (hook.failureCount >= MAX_FAILURES) {
-          await this.prisma.outboundWebhook.update({ where: { id: d.webhookId }, data: { active: false, disabledReason: `Switched off after ${MAX_FAILURES} deliveries failed in a row` } });
-        }
-      }
-    }
+    // A few at a time: one slow receiver must not hold up everyone else's deliveries.
+    const queue = [...due];
+    const worker = async () => {
+      for (let d = queue.shift(); d; d = queue.shift()) if (await this.attempt(d, now)) sent++;
+    };
+    await Promise.all(Array.from({ length: Math.min(DELIVERY_CONCURRENCY, queue.length) }, worker));
     return sent;
   }
 
+  /** One claimed delivery attempt; false when another worker got there first. */
+  private async attempt(d: DueDelivery, now: Date): Promise<boolean> {
+    const claimed = await this.prisma.outboundDelivery.updateMany({ where: { id: d.id, status: 'PENDING', attempts: d.attempts }, data: { attempts: { increment: 1 } } });
+    if (claimed.count === 0) return false;
+    const attempts = d.attempts + 1;
+    let status: number | null = null;
+    let error: string | null = null;
+    try {
+      status = (await this.post(d.webhook, d.event, d.id, JSON.stringify(d.payload))).status;
+      if (status < 200 || status >= 300) error = `The endpoint answered ${status}`;
+    } catch (e) {
+      error = (e as Error).message;
+    }
+    if (!error) {
+      await this.prisma.$transaction([
+        this.prisma.outboundDelivery.update({ where: { id: d.id }, data: { status: 'SUCCESS', responseStatus: status, error: null, deliveredAt: now } }),
+        this.prisma.outboundWebhook.update({ where: { id: d.webhookId }, data: { failureCount: 0, lastSuccessAt: now } }),
+      ]);
+    } else if (attempts < MAX_ATTEMPTS) {
+      await this.prisma.outboundDelivery.update({ where: { id: d.id }, data: { responseStatus: status, error, nextAttemptAt: new Date(now.getTime() + RETRY_DELAYS_MS[attempts - 1]) } });
+    } else {
+      const hook = await this.prisma.outboundWebhook.update({ where: { id: d.webhookId }, data: { failureCount: { increment: 1 } } });
+      await this.prisma.outboundDelivery.update({ where: { id: d.id }, data: { status: 'FAILED', responseStatus: status, error } });
+      if (hook.failureCount >= MAX_FAILURES) {
+        await this.prisma.outboundWebhook.update({ where: { id: d.webhookId }, data: { active: false, disabledReason: `Switched off after ${MAX_FAILURES} deliveries failed in a row` } });
+      }
+    }
+    return true;
+  }
+
   @Cron(CronExpression.EVERY_MINUTE)
+  @RunOnce('webhook-deliveries', HOLD.minute)
   async tick() {
     try { await this.deliverDue(); } catch (err) { this.logger.error('Webhook delivery failed', err as Error); }
   }

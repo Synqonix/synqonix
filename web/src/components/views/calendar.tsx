@@ -30,15 +30,12 @@ export function CalendarView({ state, projectId, activeKey, onOpen }: {
   const today = isoDay(new Date());
 
   const filterKey = JSON.stringify(filterParams(state.filters));
-  const tasks = useQuery(
-    () => api.GET("/api/v1/workspaces/{workspaceId}/tasks", {
+  const tasks = useQuery(["/api/v1/workspaces/{workspaceId}/tasks", "components/views/calendar:0", workspace.id, projectId, first, last, filterKey], () => api.GET("/api/v1/workspaces/{workspaceId}/tasks", {
       params: {
         path: { workspaceId: workspace.id },
         query: { ...filterParams(state.filters), projectId, dueAfter: `${first}T00:00:00.000Z`, dueBefore: `${last}T23:59:59.999Z`, sort: "dueDate", order: "asc", limit: 200 },
       },
-    }),
-    [workspace.id, projectId, first, last, filterKey],
-  );
+    }));
   useProjectEvents(projectId, () => tasks.reload());
 
   const byDay = new Map<string, Schemas["TaskDto"][]>();

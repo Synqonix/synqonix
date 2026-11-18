@@ -8,7 +8,7 @@ import { ApiBearerAuth, ApiCreatedResponse, ApiExcludeEndpoint, ApiOkResponse, A
 import { SkipThrottle } from '@nestjs/throttler';
 import { createHmac, timingSafeEqual } from 'node:crypto';
 import type { Request } from 'express';
-import { Public } from '../common/decorators.js';
+import { Public, RequiresSession } from '../common/decorators.js';
 import type { Env } from '../config/env.js';
 import type { Membership } from '../generated/prisma/client.js';
 import { CurrentMembership, RequirePermission, WorkspaceGuard } from '../permissions/workspace.guard.js';
@@ -35,7 +35,8 @@ export class GithubController {
   }
 
   /** Where to send the browser to install the GitHub App on an account. Workspace admins only. */
-  @Get('install-url') @RequirePermission('workspace.read')
+  // Needs a signed-in session even though it is a GET: it starts a lasting change, which a read-only API token must not do.
+  @Get('install-url') @RequirePermission('workspace.read') @RequiresSession()
   @ApiOkResponse({ type: GithubInstallUrlDto })
   installUrl(@CurrentMembership() m: Membership) {
     return this.github.installUrl(m);
@@ -138,8 +139,8 @@ export class GithubPublicController {
 
   @Public() @SkipThrottle() @Get('setup') @Redirect()
   @ApiExcludeEndpoint()
-  async setup(@Query('state') state?: string, @Query('installation_id') installationId?: string) {
-    return { url: await this.github.completeInstall(state, installationId), statusCode: 302 };
+  async setup(@Query('state') state?: string, @Query('installation_id') installationId?: string, @Query('code') code?: string) {
+    return { url: await this.github.completeInstall(state, installationId, code), statusCode: 302 };
   }
 
   @Public() @SkipThrottle() @Post('webhooks') @HttpCode(202)

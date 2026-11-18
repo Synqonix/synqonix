@@ -21,11 +21,11 @@ export function InsightsReport() {
   const [days, setDays] = useState(30);
   const path = { workspaceId: workspace.id, projectId: project.id };
   const bucket = days > 60 ? "week" : "day";
-  const created = useQuery(() => api.GET("/api/v1/workspaces/{workspaceId}/projects/{projectId}/insights/created-resolved", { params: { path, query: { days, bucket } } }), [project.id, days]);
-  const flow = useQuery(() => api.GET("/api/v1/workspaces/{workspaceId}/projects/{projectId}/insights/cumulative-flow", { params: { path, query: { days } } }), [project.id, days]);
-  const workload = useQuery(() => api.GET("/api/v1/workspaces/{workspaceId}/projects/{projectId}/insights/workload", { params: { path } }), [project.id]);
-  const overdue = useQuery(() => api.GET("/api/v1/workspaces/{workspaceId}/projects/{projectId}/insights/overdue", { params: { path } }), [project.id]);
-  const time = useQuery(() => api.GET("/api/v1/workspaces/{workspaceId}/projects/{projectId}/insights/time", { params: { path } }), [project.id]);
+  const created = useQuery(["/api/v1/workspaces/{workspaceId}/projects/{projectId}/insights/created-resolved", "components/reports/insights-report:0", project.id, days], () => api.GET("/api/v1/workspaces/{workspaceId}/projects/{projectId}/insights/created-resolved", { params: { path, query: { days, bucket } } }));
+  const flow = useQuery(["/api/v1/workspaces/{workspaceId}/projects/{projectId}/insights/cumulative-flow", "components/reports/insights-report:1", project.id, days], () => api.GET("/api/v1/workspaces/{workspaceId}/projects/{projectId}/insights/cumulative-flow", { params: { path, query: { days } } }));
+  const workload = useQuery(["/api/v1/workspaces/{workspaceId}/projects/{projectId}/insights/workload", "components/reports/insights-report:2", project.id], () => api.GET("/api/v1/workspaces/{workspaceId}/projects/{projectId}/insights/workload", { params: { path } }));
+  const overdue = useQuery(["/api/v1/workspaces/{workspaceId}/projects/{projectId}/insights/overdue", "components/reports/insights-report:3", project.id], () => api.GET("/api/v1/workspaces/{workspaceId}/projects/{projectId}/insights/overdue", { params: { path } }));
+  const time = useQuery(["/api/v1/workspaces/{workspaceId}/projects/{projectId}/insights/time", "components/reports/insights-report:4", project.id], () => api.GET("/api/v1/workspaces/{workspaceId}/projects/{projectId}/insights/time", { params: { path } }));
 
   const c = created.data;
   const f = flow.data;

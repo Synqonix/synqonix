@@ -149,12 +149,9 @@ export function BacklogView() {
   const [override, setOverride] = useState<{ src: Backlog | undefined; items: Items } | null>(null);
   const dragging = useRef(false);
 
-  const query = useQuery(
-    () => api.GET("/api/v1/workspaces/{workspaceId}/projects/{projectId}/backlog", {
+  const query = useQuery(["/api/v1/workspaces/{workspaceId}/projects/{projectId}/backlog", "components/agile/backlog-view:0", ws, project.id, q, epic, assignee], () => api.GET("/api/v1/workspaces/{workspaceId}/projects/{projectId}/backlog", {
       params: { path: { workspaceId: ws, projectId: project.id }, query: { q: q.trim() || undefined, assignee: assignee || undefined, parent: epic || undefined, limit: 200 } },
-    }),
-    [ws, project.id, q, epic, assignee],
-  );
+    }));
   useProjectEvents(project.id, () => { if (!dragging.current) query.reload(); });
 
   const data = query.data;

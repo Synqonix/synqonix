@@ -1,7 +1,7 @@
 # Synqonix user guide
 
 ## First steps
-1. **Create an account** and verify your email (a banner reminds you until you do).
+1. **Create an account**, then open the link we email you: it confirms your address and signs you in (it expires after 24 hours). Opened in another browser or device, it asks you to choose your password there. Accepting an invitation link skips this step.
 2. **Create a workspace** from the dashboard, then invite teammates from *Members* (roles: Owner, Admin, Member, Viewer).
 3. **Create a project** (Scrum, Kanban, Bug tracking or Basic template). Its key (e.g. `SYN`) prefixes task keys (`SYN-12`).
 4. **Add tasks** with *New task* or the quick-add box in the list (`/` focuses it). Press `Ctrl K` to search or jump anywhere.
@@ -21,4 +21,6 @@ Install the Synqonix extension, run *Synqonix: Sign in*, then right-click a task
 
 ## Security tips
 - Revoke API tokens you no longer use under *Settings → Security*. Changing your password signs out your other devices.
+- Turn on **two-factor authentication** under *Settings → Security* and keep the recovery codes somewhere safe. We email you when your account signs in from a new device.
+- After 10 wrong passwords, sign-in to that account pauses for 15 minutes; resetting your password lifts it.
 - Admins can review the audit log under workspace settings.

@@ -9,7 +9,7 @@ type Route = { method: 'get' | 'post' | 'put' | 'patch' | 'delete'; path: string
 
 /** Routes that are meant to be reachable without logging in. Adding a public route must be a conscious change here. */
 const PUBLIC = new Set([
-  'post /api/v1/auth/register', 'post /api/v1/auth/login', 'post /api/v1/auth/refresh', 'post /api/v1/auth/logout',
+  'post /api/v1/auth/register', 'post /api/v1/auth/login', 'post /api/v1/auth/login/2fa', 'post /api/v1/auth/refresh', 'post /api/v1/auth/logout',
   'post /api/v1/auth/verify-email', 'post /api/v1/auth/resend-verification', 'post /api/v1/auth/forgot-password', 'post /api/v1/auth/reset-password',
   'get /api/v1/invitations/{token}', 'get /api/v1/health', 'get /api/v1/health/live', 'get /api/v1/health/ready',
 ]);

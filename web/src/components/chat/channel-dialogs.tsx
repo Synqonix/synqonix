@@ -18,10 +18,7 @@ export function ChannelSettingsDialog({ channel, onClose, onLeft }: { channel: C
   const path = { workspaceId: ws, channelId: channel.id };
   const [error, setError] = useState<string | null>(null);
   const [adding, setAdding] = useState("");
-  const members = useQuery(
-    () => api.GET("/api/v1/workspaces/{workspaceId}/channels/{channelId}/members", { params: { path } }),
-    [ws, channel.id],
-  );
+  const members = useQuery(["/api/v1/workspaces/{workspaceId}/channels/{channelId}/members", "components/chat/channel-dialogs:0", ws, channel.id], () => api.GET("/api/v1/workspaces/{workspaceId}/channels/{channelId}/members", { params: { path } }));
   const canEdit = channel.isAdmin && channel.type !== "DIRECT";
   const taken = new Set((members.data ?? []).map((m) => m.userId));
 
@@ -111,7 +108,7 @@ export function MessageTaskDialog({ channelId, message, onClose, onDone }: {
   const ws = workspace.id;
   const [mode, setMode] = useState<"link" | "create">("create");
   const [error, setError] = useState<string | null>(null);
-  const projects = useQuery(() => api.GET("/api/v1/workspaces/{workspaceId}/projects", { params: { path: { workspaceId: ws } } }), [ws]);
+  const projects = useQuery(["/api/v1/workspaces/{workspaceId}/projects", "components/chat/channel-dialogs:1", ws], () => api.GET("/api/v1/workspaces/{workspaceId}/projects", { params: { path: { workspaceId: ws } } }));
   const path = { workspaceId: ws, channelId, messageId: message.id };
 
   async function submit(e: React.FormEvent<HTMLFormElement>) {

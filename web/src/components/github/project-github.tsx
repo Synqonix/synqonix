@@ -12,11 +12,8 @@ type Linked = Schemas["LinkedRepoDto"];
 /** Repositories linked to a project and what happens when their pull requests and issues change. */
 export function ProjectGithub({ project }: { project: Project }) {
   const path = { workspaceId: project.workspaceId, projectId: project.id };
-  const repos = useQuery(() => api.GET("/api/v1/workspaces/{workspaceId}/projects/{projectId}/github/repos", { params: { path } }), [project.id]);
-  const available = useQuery(
-    () => (project.canManage ? api.GET("/api/v1/workspaces/{workspaceId}/projects/{projectId}/github/available", { params: { path } }) : Promise.resolve({ data: [] })),
-    [project.id, repos.data?.length],
-  );
+  const repos = useQuery(["/api/v1/workspaces/{workspaceId}/projects/{projectId}/github/repos", "components/github/project-github:0", project.id], () => api.GET("/api/v1/workspaces/{workspaceId}/projects/{projectId}/github/repos", { params: { path } }));
+  const available = useQuery(["/api/v1/workspaces/{workspaceId}/projects/{projectId}/github/available", "components/github/project-github:1", project.id, repos.data?.length], () => (project.canManage ? api.GET("/api/v1/workspaces/{workspaceId}/projects/{projectId}/github/available", { params: { path } }) : Promise.resolve({ data: [] })));
   const [error, setError] = useState<string | null>(null);
   const [choice, setChoice] = useState("");
   const options = (available.data ?? []).filter((r) => !r.linked);

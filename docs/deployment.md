@@ -20,18 +20,24 @@ Three pieces: **Postgres 17.9**, the **API** (NestJS, port 4000) and the **web a
 | `NODE_ENV` | `development` | `production` turns on JSON logs and the secret checks |
 | `PORT` | `4000` | |
 | `WEB_URL` | `http://localhost:3000` | Public web address; CORS origin and the base of emailed links. Must not be localhost in production |
-| `JWT_ACCESS_SECRET`, `JWT_REFRESH_SECRET` | dev values | Required and different in production, 16+ chars |
+| `JWT_ACCESS_SECRET`, `JWT_REFRESH_SECRET` | dev values | Required and different in production, 32+ chars (`openssl rand -base64 48`) |
+| `JWT_ACCESS_SECRET_PREVIOUS`, `JWT_REFRESH_SECRET_PREVIOUS` | unset | Former secret(s), comma separated, still accepted while you rotate: move the old value here, set a new one, and remove it after `JWT_ACCESS_TTL_SECONDS` / `REFRESH_TTL_DAYS` have passed. Without this, changing a secret signs everyone out |
+| `ENCRYPTION_KEY` | dev value | Required in production, 32+ chars, different from the JWT secrets. Encrypts secrets stored in the database (webhook signing secrets); losing it makes them unreadable |
+| `ENCRYPTION_KEY_PREVIOUS` | unset | Former `ENCRYPTION_KEY` value(s), comma separated, still accepted for decryption while you rotate the key |
+| `SENTRY_DSN`, `SENTRY_ENVIRONMENT` | unset | Report unexpected errors (500s and failed background jobs) to Sentry or a compatible service. Only the error, request id, method and path are sent, no request bodies or user details |
+| `SWAGGER_ENABLED` | `1` outside production, `0` in production | `1` serves the interactive API docs at `/docs` |
 | `JWT_ACCESS_TTL_SECONDS` / `REFRESH_TTL_DAYS` | `900` / `30` | |
 | `TRUST_PROXY` | `0` | Reverse-proxy hops; set to `1` behind one proxy so rate limits and logs use the client IP |
 | `LOG_FORMAT` | `json` in production | `json` or `pretty` |
 | `METRICS_TOKEN` | unset | 16+ chars; enables `GET /api/v1/metrics` for `Authorization: Bearer …` |
-| `RESEND_API_KEY`, `MAIL_FROM` | – | Email via Resend; without a key the API uses SMTP (`SMTP_HOST`/`SMTP_PORT`, default Mailpit) |
+| `RESEND_API_KEY`, `MAIL_FROM` | – (required) | Email is sent with [Resend](https://resend.com) only; sign-up, password resets and notifications need it. `MAIL_FROM`'s domain must be verified in Resend |
+| `RESEND_BASE_URL` | unset | Send to a Resend-compatible server instead (development and CI use Dev-Remail at `http://localhost:6245`). Leave unset in production |
 | `STORAGE_DRIVER` | `local` | `local` (container disk, mount a volume at `/app/uploads`) or `s3` |
 | `S3_ENDPOINT`, `S3_REGION`, `S3_BUCKET`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY`, `S3_FORCE_PATH_STYLE` | – / `us-east-1` / – / – / – / `1` | Any S3-compatible bucket (required with `s3`). The bucket stays private: every upload and download uses a presigned link |
 | `PRESIGN_TTL_SECONDS` | `300` | How long a presigned link works |
 | `API_PUBLIC_URL` | `http://localhost:PORT` | Used only for the local driver's links |
 | `UPLOAD_DIR`, `MAX_UPLOAD_MB` | `./uploads`, `10` | Local-driver folder; the size limit applies to both drivers |
-| `GITHUB_APP_ID`, `GITHUB_APP_SLUG`, `GITHUB_APP_PRIVATE_KEY`, `GITHUB_WEBHOOK_SECRET` | unset | GitHub integration is off until set, see [github-integration.md](github-integration.md) |
+| `GITHUB_APP_ID`, `GITHUB_APP_SLUG`, `GITHUB_APP_PRIVATE_KEY`, `GITHUB_WEBHOOK_SECRET`, `GITHUB_APP_CLIENT_ID`, `GITHUB_APP_CLIENT_SECRET` | unset | GitHub integration is off until set, see [github-integration.md](github-integration.md) |
 | `AUDIT_RETENTION_DAYS`, `NOTIFICATION_RETENTION_DAYS`, `DELIVERY_RETENTION_DAYS` | `365`, `90`, `30` | `0` keeps forever |
 | `WEBHOOKS_ALLOW_PRIVATE_TARGETS` | `0` | Development only |
 
@@ -42,7 +48,8 @@ Web: `NEXT_PUBLIC_STORAGE_URL` (origin of the S3 endpoint; lets the browser uplo
 - Migrations are forward-only SQL files in `api/prisma/migrations`, applied automatically on API start. To run them as a separate step, set `SKIP_MIGRATIONS=1` on the API and run `docker compose run --rm api npx prisma migrate deploy` first.
 - Take a backup before upgrading (below). Roll back by restoring the backup and starting the previous image tag; migrations are not reversed automatically.
 - Rolling deploys: new API versions should be started after migrations; migrations in this repository are additive (new tables/columns/indexes).
-- Run **one** API instance unless you add a shared socket.io adapter: realtime rooms and the in-process schedulers (recurring tasks, webhook retries, retention) assume a single process. Claims are compare-and-set so an accidental second instance will not double-send, but live updates would only reach clients connected to the same instance.
+- **One API instance** needs nothing extra: realtime, rate limits and scheduled jobs live in the process.
+- **More than one instance:** set `REDIS_URL` (any Redis 6+; `REDIS_PREFIX` if several deployments share one). Then realtime events and presence reach clients on every instance (Socket.IO Redis adapter), rate limits are counted across instances, and each scheduled job run (recurring tasks, webhook retries, reminders, sprint snapshots, retention, storage sweep) happens on one instance only. `/api/v1/health/ready` also checks Redis, so a load balancer stops sending traffic to an instance that lost it. Sticky sessions are not needed (clients use the WebSocket transport).
 
 ## Backups
 

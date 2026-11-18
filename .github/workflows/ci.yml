@@ -16,10 +16,24 @@ jobs:
         ports: ["5432:5432"]
         options: >-
           --health-cmd "pg_isready -U synqonix" --health-interval 5s --health-timeout 3s --health-retries 10
+      redis:
+        image: redis:7.4-alpine
+        ports: ["6379:6379"]
+      # Resend-compatible mailbox: the API sends with the real Resend SDK, tests read mail from it.
+      dev-remail:
+        image: abdullahqasim01/dev-remail:0.1.0
+        ports: ["6245:6245"]
     env:
       DATABASE_URL: postgresql://synqonix:synqonix@localhost:5432/synqonix
+      # Runs the multi-instance suite (two API instances sharing Redis).
+      E2E_REDIS_URL: redis://localhost:6379
+      # Runs the real mail delivery test (Resend SDK against Dev-Remail).
+      E2E_DEV_REMAIL_URL: http://localhost:6245
     steps:
       - uses: actions/checkout@v4
+      - name: Register the sending domain in Dev-Remail
+        run: |
+          curl -sSf -X POST http://localhost:6245/domains -H 'Authorization: Bearer re_dev' -H 'Content-Type: application/json' -d '{"name":"synqonix.local"}'
       - uses: actions/setup-node@v4
         with: { node-version: 22, cache: npm, cache-dependency-path: api/package-lock.json }
       - run: npm ci
@@ -30,6 +44,10 @@ jobs:
       - run: npx prisma migrate deploy # the e2e suites need the tables to exist
       - run: npm run test:e2e
       - run: npm run build
+      - name: openapi.json matches the code
+        run: |
+          npm run generate:openapi
+          git diff --exit-code -- openapi.json || { echo "::error::api/openapi.json is out of date: run 'npm run generate:openapi' in api/ and commit it"; exit 1; }
 
   web:
     runs-on: ubuntu-latest
@@ -44,6 +62,10 @@ jobs:
       - run: npm run typecheck
       - run: npm test
       - run: npm run build
+      - name: generated API types match api/openapi.json
+        run: |
+          npm run generate:api
+          git diff --exit-code -- src/lib/api/schema.d.ts || { echo "::error::web/src/lib/api/schema.d.ts is out of date: run 'npm run generate:api' in web/ and commit it"; exit 1; }
 
   vscode-extension:
     runs-on: ubuntu-latest
@@ -58,6 +80,10 @@ jobs:
       - run: npm run typecheck
       - run: npm test
       - run: npm run build
+      - name: generated API types match api/openapi.json
+        run: |
+          npm run generate:api
+          git diff --exit-code -- src/api/schema.d.ts || { echo "::error::vscode-extension/src/api/schema.d.ts is out of date: run 'npm run generate:api' in vscode-extension/ and commit it"; exit 1; }
 
   web-e2e:
     runs-on: ubuntu-latest
@@ -69,13 +95,22 @@ jobs:
         ports: ["5432:5432"]
         options: >-
           --health-cmd "pg_isready -U synqonix" --health-interval 5s --health-timeout 3s --health-retries 10
+      # Resend-compatible mailbox: the API sends with the real Resend SDK, tests read mail from it.
+      dev-remail:
+        image: abdullahqasim01/dev-remail:0.1.0
+        ports: ["6245:6245"]
     env:
       DATABASE_URL: postgresql://synqonix:synqonix@localhost:5432/synqonix
       THROTTLE_DISABLED: "1"
+      RESEND_API_KEY: re_dev
+      RESEND_BASE_URL: http://localhost:6245
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with: { node-version: 22 }
+      - name: Register the sending domain in Dev-Remail
+        run: |
+          curl -sSf -X POST http://localhost:6245/domains -H 'Authorization: Bearer re_dev' -H 'Content-Type: application/json' -d '{"name":"synqonix.local"}'
       - name: Start the API
         working-directory: api
         run: |
@@ -121,7 +156,7 @@ jobs:
         run: |
           curl -fsS http://localhost:4000/api/v1/health/ready
           curl -fsS -o /dev/null http://localhost:3000/login
-          curl -fsS -o /dev/null http://localhost:8025
+          curl -fsS -o /dev/null http://localhost:6245
       - name: Sign in with the demo account and read data
         run: |
           token=$(curl -fsS -X POST http://localhost:4000/api/v1/auth/login -H 'content-type: application/json' \

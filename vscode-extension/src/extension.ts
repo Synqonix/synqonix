@@ -1,5 +1,7 @@
+import { io } from "socket.io-client";
 import * as vscode from "vscode";
 import { SynqonixError } from "./core/api";
+import { debounce, LiveConnection } from "./core/live";
 import { DEFAULT_TOAST_TYPES, NotificationPoller } from "./core/notifications";
 import { registerCommands } from "./ui/commands";
 import { syncCurrentTaskFromBranch, watchBranch } from "./ui/git-watch";
@@ -37,6 +39,27 @@ export async function activate(context: vscode.ExtensionContext) {
     },
   });
 
+  // Live updates: notifications and task changes arrive at once; polling stays as the fallback.
+  const live = new LiveConnection(
+    (url, token) => io(url, { auth: { token }, transports: ["websocket"], reconnectionDelayMax: 30_000 }),
+    {
+      onNotification: debounce(() => void poller.pollOnce(), 500),
+      onTask: debounce(() => Object.values(trees).forEach((t) => t.refresh()), 1000),
+      onStatus: (connected) => output.appendLine(`[live] ${connected ? "connected" : "disconnected"}`),
+    },
+  );
+  let liveKey: string | undefined;
+  const syncLive = () => {
+    const token = state.apiToken;
+    const key = state.signedIn && token ? `${state.apiUrl}|${token}` : undefined;
+    if (key !== liveKey) {
+      liveKey = key;
+      if (key && token) live.connect(state.apiUrl, token);
+      else live.disconnect();
+    }
+    live.watchProject(key ? state.project?.id : undefined);
+  };
+
   context.subscriptions.push(
     output,
     statusBar,
@@ -44,6 +67,8 @@ export async function activate(context: vscode.ExtensionContext) {
     ...registerCommands({ state, panels, statusBar, trees, output, pollNotifications: () => poller.pollOnce() }),
     watchBranch(state),
     { dispose: () => poller.stop() },
+    { dispose: () => live.disconnect() },
+    vscode.workspace.onDidChangeConfiguration((e) => e.affectsConfiguration("synqonix.apiUrl") && void state.enforceOrigin().then(syncLive)),
   );
 
   if (state.signedIn) {
@@ -51,7 +76,12 @@ export async function activate(context: vscode.ExtensionContext) {
     void vscode.commands.executeCommand("synqonix.refresh");
     poller.start();
   }
-  state.changed.event(() => (state.signedIn ? poller.start() : poller.stop()));
+  syncLive();
+  state.changed.event(() => {
+    if (state.signedIn) poller.start();
+    else poller.stop();
+    syncLive();
+  });
 }
 
 export function deactivate() {}

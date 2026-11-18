@@ -1,5 +1,5 @@
 import type { Prisma } from '../generated/prisma/client.js';
-import type { TaskDto, TaskRefDto } from './dto/task.dto.js';
+import type { TaskDto, TaskRefDto } from './dto/task-response.dto.js';
 import { taskKey } from './task-ref.js';
 
 /** Everything a task list row needs. */

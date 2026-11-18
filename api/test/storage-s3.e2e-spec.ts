@@ -71,6 +71,10 @@ describe('S3 storage (against an S3-compatible server)', () => {
       expect(res.headers.get('content-disposition')).toContain("filename*=UTF-8''r%C3%A9sum%C3%A9%20%22final%22.txt");
       expect(res.headers.get('content-type')).toBe('application/octet-stream');
 
+      const listed = [];
+      for await (const o of storage.list()) listed.push(o);
+      expect(listed).toContainEqual({ key: 'ws/round/trip', lastModified: expect.any(Date) });
+
       await storage.delete('ws/round/trip');
       expect(await storage.head('ws/round/trip')).toBeNull();
     });

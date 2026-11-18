@@ -11,7 +11,7 @@ import {
   ActivityQueryDto, CommentBodyDto, CommentDto, CreateChecklistDto, CreateChecklistItemDto,
   CreateRelationDto, UpdateChecklistDto, UpdateChecklistItemDto,
 } from './dto/details.dto.js';
-import { ActivityDto, AttachmentDto, ChecklistDto } from './dto/task.dto.js';
+import { ActivityDto, AttachmentDto, ChecklistDto } from './dto/task-response.dto.js';
 import { RelationsService } from './relations.service.js';
 import { TaskAccessService } from './task-access.service.js';
 import { WatchersService } from './watchers.service.js';

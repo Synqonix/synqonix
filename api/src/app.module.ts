@@ -4,6 +4,11 @@ import { EventEmitterModule } from '@nestjs/event-emitter';
 import { ScheduleModule } from '@nestjs/schedule';
 import { APP_GUARD } from '@nestjs/core';
 import { ThrottlerModule } from '@nestjs/throttler';
+import type { Redis } from 'ioredis';
+import { throttleDisabled } from './common/throttle.js';
+import { RedisThrottlerStorage } from './redis/redis-throttler-storage.js';
+import { RedisModule } from './redis/redis.module.js';
+import { REDIS } from './redis/redis.tokens.js';
 import { HttpThrottlerGuard } from './common/http-throttler.guard.js';
 import { validateEnv } from './config/env.js';
 import { GithubModule } from './github/github.module.js';
@@ -34,10 +39,16 @@ import { WorkspacesModule } from './workspaces/workspaces.module.js';
     ConfigModule.forRoot({ isGlobal: true, validate: validateEnv }),
     EventEmitterModule.forRoot(),
     ScheduleModule.forRoot(),
-    ThrottlerModule.forRoot({
-      throttlers: [{ ttl: 60_000, limit: 120 }],
-      // Lets e2e suites that create many accounts run without tripping limits.
-      skipIf: () => process.env.THROTTLE_DISABLED === '1',
+    RedisModule,
+    ThrottlerModule.forRootAsync({
+      inject: [REDIS],
+      useFactory: (redis: Redis | null) => ({
+        throttlers: [{ ttl: 60_000, limit: 120 }],
+        // Lets e2e suites that create many accounts run without tripping limits (never in production).
+        skipIf: () => throttleDisabled(),
+        // Shared by every instance when Redis is configured; otherwise counted in this process.
+        ...(redis && { storage: new RedisThrottlerStorage(redis) }),
+      }),
     }),
     PrismaModule,
     StorageModule,

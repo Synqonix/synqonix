@@ -3,7 +3,7 @@ import type { Membership, Prisma, TaskTemplate } from '../generated/prisma/clien
 import { PrismaService } from '../prisma/prisma.service.js';
 import { ProjectAccessService } from '../projects/project-access.service.js';
 import { TaskAccessService } from '../tasks/task-access.service.js';
-import type { TaskDetailDto } from '../tasks/dto/task.dto.js';
+import type { TaskDetailDto } from '../tasks/dto/task-response.dto.js';
 import { TasksService } from '../tasks/tasks.service.js';
 import type {
   CreateFromTemplateDto, CreateTemplateDto, TemplateChecklistDto, TemplateDto, UpdateTemplateDto,

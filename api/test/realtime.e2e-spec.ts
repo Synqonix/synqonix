@@ -22,7 +22,6 @@ describe('Realtime (e2e)', () => {
 
   beforeAll(async () => {
     ({ app, mail, prisma } = await createTestApp());
-    await app.listen(0);
     url = `http://127.0.0.1:${(app.getHttpServer().address() as AddressInfo).port}`;
   });
   afterAll(() => app.close());
@@ -72,6 +71,16 @@ describe('Realtime (e2e)', () => {
     expect(await subscribe(s, project.id)).toEqual({ ok: true });
   });
 
+  it('keeps a workspace-bound API token out of other workspaces', async () => {
+    const otherWs = (await http().post('/api/v1/workspaces').set(alice.auth).send({ name: 'Elsewhere' }).expect(201)).body.id;
+    const t = (await http().post('/api/v1/api-tokens').set(alice.auth).send({ name: 'bound', workspaceId: otherWs }).expect(201)).body.token as string;
+    const { s } = await connect(t);
+    expect(await subscribe(s, project.id)).toEqual({ ok: false, error: 'not_found' });
+    expect(await new Promise((res) => s.emit('presence:subscribe', { workspaceId: ws }, res))).toEqual({ ok: false, error: 'not_found' });
+    const general = (await prisma.channel.findFirst({ where: { workspaceId: ws } }))!;
+    expect(await new Promise((res) => s.emit('channel:subscribe', { workspaceId: ws, channelId: general.id }, res))).toEqual({ ok: false, error: 'not_found' });
+  });
+
   it('only lets people who can see a project subscribe to it', async () => {
     const priv = (await http().post(api('/projects')).set(alice.auth).send({ name: 'Secret', key: 'SEC', visibility: 'PRIVATE' })).body;
     const { s: bobSock } = await connect(bob.token);
@@ -109,7 +118,8 @@ describe('Realtime (e2e)', () => {
 
     const ops = (await http().post(api('/projects')).set(alice.auth).send({ name: 'Ops', key: 'OPS' })).body;
     await http().post(api('/tasks/SYN-2/move')).set(alice.auth).send({ projectId: ops.id }).expect(200);
-    expect(await waitFor(events, (e) => e.type === 'moved_out')).toMatchObject({ projectId: project.id, actorId: alice.id });
+    // The old project hears the old key, not the destination's.
+    expect(await waitFor(events, (e) => e.type === 'moved_out')).toMatchObject({ projectId: project.id, actorId: alice.id, taskKey: 'SYN-2' });
   });
 
   it('delivers events only to the project room that was subscribed', async () => {
@@ -147,4 +157,68 @@ describe('Realtime (e2e)', () => {
     const closed = new Promise<string>((res) => s.on('disconnect', res));
     expect(await Promise.race([closed, quiet(4000).then(() => 'still open')])).toBe('io server disconnect');
   }, 15_000);
+
+  describe('losing access while connected', () => {
+    /** Alice (owner) always hears the new task; afterwards Bob must not have heard it. */
+    async function expectOnlyAliceHears(aliceEvents: Evt[], bobEvents: Evt[], pid = project.id) {
+      const task = await mk('After access changed', {}, pid);
+      await waitFor(aliceEvents, (e) => e.taskKey === task.key);
+      await quiet();
+      expect(bobEvents.filter((e) => e.taskKey === task.key)).toEqual([]);
+    }
+    async function watch(pid: string) {
+      const a = await connect(alice.token);
+      const b = await connect(bob.token);
+      expect(await subscribe(a.s, pid)).toEqual({ ok: true });
+      expect(await subscribe(b.s, pid)).toEqual({ ok: true });
+      return { aliceEvents: a.events, bob: b };
+    }
+    const privateProject = async () =>
+      (await http().post(api('/projects')).set(alice.auth).send({ name: 'Secret', key: 'SEC', visibility: 'PRIVATE' }).expect(201)).body as { id: string };
+
+    it('when the project turns private', async () => {
+      const { aliceEvents, bob: b } = await watch(project.id);
+      await http().patch(api(`/projects/${project.id}`)).set(alice.auth).send({ visibility: 'PRIVATE' }).expect(200);
+      await expectOnlyAliceHears(aliceEvents, b.events);
+    });
+
+    it('when removed from a private project', async () => {
+      const priv = await privateProject();
+      await http().put(api(`/projects/${priv.id}/members`)).set(alice.auth).send({ userId: bob.id, role: 'MEMBER' }).expect(200);
+      const { aliceEvents, bob: b } = await watch(priv.id);
+      await http().delete(api(`/projects/${priv.id}/members/${bob.id}`)).set(alice.auth).expect(204);
+      await expectOnlyAliceHears(aliceEvents, b.events, priv.id);
+    });
+
+    it('when an admin is demoted and the project is private', async () => {
+      await http().patch(`/api/v1/workspaces/${ws}/members/${bob.id}`).set(alice.auth).send({ role: 'ADMIN' }).expect(200);
+      const priv = await privateProject();
+      const { aliceEvents, bob: b } = await watch(priv.id);
+      await http().patch(`/api/v1/workspaces/${ws}/members/${bob.id}`).set(alice.auth).send({ role: 'MEMBER' }).expect(200);
+      await expectOnlyAliceHears(aliceEvents, b.events, priv.id);
+    });
+
+    it('when removed from the workspace, including presence', async () => {
+      const { aliceEvents, bob: b } = await watch(project.id);
+      const presence: unknown[] = [];
+      b.s.on('presence', (e: unknown) => presence.push(e));
+      expect(await new Promise<{ ok: boolean }>((res) => b.s.emit('presence:subscribe', { workspaceId: ws }, res))).toMatchObject({ ok: true });
+      await http().delete(`/api/v1/workspaces/${ws}/members/${bob.id}`).set(alice.auth).expect(204);
+      await expectOnlyAliceHears(aliceEvents, b.events);
+
+      presence.length = 0;
+      const { s: aliceTab } = await connect(alice.token);
+      await new Promise((res) => aliceTab.emit('presence:subscribe', { workspaceId: ws }, res));
+      await quiet();
+      expect(presence).toEqual([]);
+    });
+
+    it('keeps delivering to people who can still see the project', async () => {
+      const { aliceEvents, bob: b } = await watch(project.id);
+      await http().patch(api(`/projects/${project.id}`)).set(alice.auth).send({ name: 'Renamed' }).expect(200);
+      const task = await mk('Still visible');
+      await waitFor(aliceEvents, (e) => e.taskKey === task.key);
+      await waitFor(b.events, (e) => e.taskKey === task.key);
+    });
+  });
 });

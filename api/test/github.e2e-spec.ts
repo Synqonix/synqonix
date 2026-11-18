@@ -47,7 +47,7 @@ describe('GitHub integration (e2e)', () => {
 
   beforeEach(async () => {
     await resetDatabase(prisma, ['WebhookDelivery']);
-    github.installations.clear(); github.repos.clear(); github.branches = []; github.issueStates = []; github.configured = true; github.failBranch = false;
+    github.installations.clear(); github.codeGrants.clear(); github.repos.clear(); github.branches = []; github.issueStates = []; github.configured = true; github.failBranch = false;
     [alice, bob, viv, carol] = [await signUp(app, 'Alice'), await signUp(app, 'Bob'), await signUp(app, 'Viv'), await signUp(app, 'Carol')];
     ws = await createWorkspace(app, mail, alice, [[bob, 'MEMBER'], [viv, 'VIEWER'], [carol, 'ADMIN']]);
     project = (await http().post(api('/projects')).set(alice.auth).send({ name: 'Synqonix', key: 'SYN', template: 'SCRUM' }).expect(201)).body;
@@ -60,10 +60,10 @@ describe('GitHub integration (e2e)', () => {
     link = (await http().post(api(`/projects/${project.id}/github/repos`)).set(alice.auth).send({ installationId: inst.id, githubRepoId: '1001' }).expect(201)).body;
   });
 
-  async function connect(u: TestUser, installationId = '5001') {
+  async function connect(u: TestUser, installationId = '5001', code = 'all') {
     const url = (await http().get(api('/github/install-url')).set(u.auth).expect(200)).body.url as string;
     const state = new URL(url).searchParams.get('state')!;
-    return http().get(`/api/v1/github/setup?installation_id=${installationId}&state=${encodeURIComponent(state)}`);
+    return http().get(`/api/v1/github/setup?installation_id=${installationId}&state=${encodeURIComponent(state)}&code=${code}`);
   }
 
   describe('installing', () => {
@@ -92,13 +92,47 @@ describe('GitHub integration (e2e)', () => {
 
       const forged = await http().get('/api/v1/github/setup?installation_id=7003&state=abc.def');
       expect(forged.headers.location).toBe('http://localhost:3000/dashboard?github=error');
+      const freshState = async () => encodeURIComponent(new URL((await http().get(api('/github/install-url')).set(alice.auth).expect(200)).body.url as string).searchParams.get('state')!);
+      const state = await freshState();
+      const tampered = `${decodeURIComponent(state)}x`;
+      expect((await http().get(`/api/v1/github/setup?installation_id=7003&state=${encodeURIComponent(tampered)}&code=all`)).headers.location).toContain('github=error');
+      // unknown installation on GitHub's side: nobody can have access to it
+      expect((await http().get(`/api/v1/github/setup?installation_id=9999&state=${await freshState()}&code=all`)).headers.location).toBe(`http://localhost:3000/w/${ws}/settings?github=unauthorized`);
+      expect((await http().get(`/api/v1/github/setup?installation_id=abc&state=${await freshState()}&code=all`)).headers.location).toContain('github=error');
+    });
+
+    it('does not start a connection from a read-only API token', async () => {
+      const statesBefore = await prisma.githubInstallState.count();
+      const readOnly = (await http().post('/api/v1/api-tokens').set(alice.auth).send({ name: 'ro', scopes: ['read'] }).expect(201)).body.token as string;
+      await http().get(api('/github/install-url')).set('Authorization', `Bearer ${readOnly}`).expect(403);
+      const writeToken = (await http().post('/api/v1/api-tokens').set(alice.auth).send({ name: 'rw' }).expect(201)).body.token as string;
+      await http().get(api('/github/install-url')).set('Authorization', `Bearer ${writeToken}`).expect(403); // a session is required
+      await http().get(api('/github/install-url')).set(alice.auth).expect(200);
+      expect(await prisma.githubInstallState.count()).toBe(statesBefore + 1); // only the session's request made a state
+    });
+
+    it('refuses an installation the connecting GitHub user does not administer', async () => {
+      // 6002 exists on GitHub (someone else's install of the same app); this user's code administers only 9001 (a member with
+      // access to a few repositories counts the same as a stranger).
+      github.installations.set('6002', { githubId: '6002', accountLogin: 'victim', accountType: 'Organization' });
+      github.codeGrants.set('attacker', new Set(['9001']));
+      const res = await connect(alice, '6002', 'attacker');
+      expect(res.headers.location).toBe(`http://localhost:3000/w/${ws}/settings?github=unauthorized`);
+      expect(await prisma.githubInstallation.count({ where: { githubId: '6002' } })).toBe(0);
+      // No code at all (authorization step skipped) is refused too.
       const url = (await http().get(api('/github/install-url')).set(alice.auth).expect(200)).body.url as string;
       const state = new URL(url).searchParams.get('state')!;
-      const tampered = `${state.split('.')[0]}x.${state.split('.')[1]}`;
-      expect((await http().get(`/api/v1/github/setup?installation_id=7003&state=${encodeURIComponent(tampered)}`)).headers.location).toContain('github=error');
-      // unknown installation on GitHub's side
-      expect((await http().get(`/api/v1/github/setup?installation_id=9999&state=${encodeURIComponent(state)}`)).headers.location).toBe(`http://localhost:3000/w/${ws}/settings?github=error`);
-      expect((await http().get(`/api/v1/github/setup?installation_id=abc&state=${encodeURIComponent(state)}`)).headers.location).toContain('github=error');
+      expect((await http().get(`/api/v1/github/setup?installation_id=6002&state=${encodeURIComponent(state)}`)).headers.location).toContain('github=unauthorized');
+      expect(await prisma.githubInstallation.count({ where: { githubId: '6002' } })).toBe(0);
+    });
+
+    it('accepts a state only once', async () => {
+      github.installations.set('6002', { githubId: '6002', accountLogin: 'octo', accountType: 'User' });
+      const url = (await http().get(api('/github/install-url')).set(alice.auth).expect(200)).body.url as string;
+      const state = new URL(url).searchParams.get('state')!;
+      const go = () => http().get(`/api/v1/github/setup?installation_id=6002&state=${encodeURIComponent(state)}&code=all`);
+      expect((await go()).headers.location).toContain('github=connected');
+      expect((await go()).headers.location).toBe('http://localhost:3000/dashboard?github=error');
     });
 
     it('does not let a second workspace claim an installation that is already connected', async () => {
@@ -106,7 +140,7 @@ describe('GitHub integration (e2e)', () => {
       const ws2 = (await http().post('/api/v1/workspaces').set(other.auth).send({ name: 'Other' }).expect(201)).body.id as string;
       const url = (await http().get(`/api/v1/workspaces/${ws2}/github/install-url`).set(other.auth).expect(200)).body.url as string;
       const state = new URL(url).searchParams.get('state')!;
-      const res = await http().get(`/api/v1/github/setup?installation_id=5001&state=${encodeURIComponent(state)}`);
+      const res = await http().get(`/api/v1/github/setup?installation_id=5001&state=${encodeURIComponent(state)}&code=all`);
       expect(res.headers.location).toBe(`http://localhost:3000/w/${ws2}/settings?github=taken`);
       expect(await prisma.githubInstallation.count({ where: { workspaceId: ws2 } })).toBe(0);
     });

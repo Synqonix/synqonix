@@ -51,6 +51,8 @@ export interface TaskRankedEvent extends TaskEventBase {
 
 export interface TaskMovedEvent extends TaskEventBase {
   fromProjectId: string;
+  /** The task's key before the move. `taskKey` is the new one, which the old project's watchers may not be allowed to see. */
+  fromTaskKey: string;
 }
 
 export type TaskEvent =

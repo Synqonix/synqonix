@@ -27,6 +27,23 @@ const memento = () => {
   return { get: <T>(k: string) => m.get(k) as T | undefined, update: async (k: string, v: unknown) => void (v === undefined ? m.delete(k) : m.set(k, v)), keys: () => [...m.keys()] };
 };
 
+const MAIL_URL = process.env.SYNQONIX_MAIL_URL ?? "http://localhost:6245";
+
+/** Token from the newest `path` link emailed to `to` (read from Dev-Remail's Resend-compatible API). */
+async function emailedToken(to: string, path: string): Promise<string> {
+  const get = async <T>(p: string) => (await (await fetch(`${MAIL_URL}${p}`, { headers: { authorization: "Bearer re_dev" } })).json()) as T;
+  for (let i = 0; i < 50; i++) {
+    const { data } = await get<{ data: { id: string; to: string[]; created_at: string }[] }>("/emails?limit=100");
+    const mine = data.filter((e) => e.to.includes(to)).sort((a, b) => b.created_at.localeCompare(a.created_at));
+    for (const e of mine) {
+      const token = new RegExp(`${path}\\?token=([^\\s"<]+)`).exec((await get<{ text: string }>(`/emails/${e.id}`)).text)?.[1];
+      if (token) return decodeURIComponent(token);
+    }
+    await new Promise((r) => setTimeout(r, 200));
+  }
+  throw new Error(`No ${path} link emailed to ${to} (is Dev-Remail running at ${MAIL_URL}?)`);
+}
+
 describe("extension against the real API", () => {
   let repo: string;
   let apiToken: string;
@@ -44,7 +61,10 @@ describe("extension against the real API", () => {
 
   beforeAll(async () => {
     const stamp = Date.now();
-    const reg = await http<{ accessToken: string }>("/auth/register", { body: { email: `vsc${stamp}@example.com`, name: "Vee Esc", password: "correct horse battery 9" } });
+    const email = `vsc${stamp}@example.com`;
+    await http("/auth/register", { body: { email, name: "Vee Esc", password: "correct horse battery 9" } });
+    // Sign-up finishes through the emailed link (caught by Dev-Remail in development).
+    const reg = await http<{ accessToken: string }>("/auth/verify-email", { body: { token: await emailedToken(email, "/verify-email"), password: "correct horse battery 9" } });
     session = reg.accessToken;
     apiToken = (await http<{ token: string }>("/api-tokens", { token: session, body: { name: "e2e" } })).token;
     wsId = (await http<{ id: string }>("/workspaces", { token: session, body: { name: `E2E ${stamp}` } })).id;
@@ -180,5 +200,28 @@ describe("extension against the real API", () => {
     await run("synqonix.createTask").catch(() => undefined);
     expect(host.secrets.has("synqonix.token")).toBe(false);
     expect(host.messages.some((m) => /no longer valid/.test(m.text))).toBe(true);
+  });
+
+  it("hears task changes live over the API token", async () => {
+    const { io } = await import("socket.io-client");
+    const { LiveConnection } = await import("../src/core/live");
+    const project = (await http<{ id: string }[]>(`/workspaces/${wsId}/projects`, { token: session }))[0];
+    const heard: string[] = [];
+    let connected!: () => void;
+    const ready = new Promise<void>((r) => (connected = r));
+    const live = new LiveConnection((url, token) => io(url, { auth: { token }, transports: ["websocket"], reconnection: false }), {
+      onNotification: () => undefined,
+      onTask: (e) => heard.push(`${e.type} ${e.taskKey}`),
+      onStatus: (c) => c && connected(),
+    });
+    const token = (await http<{ token: string }>("/api-tokens", { token: session, body: { name: "live" } })).token; // the shared one was revoked above
+    live.watchProject(project.id);
+    live.connect(API, token);
+    await ready;
+    await new Promise((r) => setTimeout(r, 200)); // let the subscription land
+    const task = await http<{ key: string }>(`/workspaces/${wsId}/projects/${project.id}/tasks`, { token: session, body: { title: "Live one", type: "TASK" } });
+    for (let i = 0; i < 50 && !heard.includes(`created ${task.key}`); i++) await new Promise((r) => setTimeout(r, 100));
+    live.disconnect();
+    expect(heard).toContain(`created ${task.key}`);
   });
 });

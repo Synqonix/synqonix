@@ -46,7 +46,7 @@ export function ProjectViews() {
   const [message, setMessage] = useState<{ ok: boolean; text: string } | null>(null);
   const [version, setVersion] = useState(0);
 
-  const views = useQuery(() => api.GET("/api/v1/workspaces/{workspaceId}/views", { params: { path: { workspaceId: ws }, query: { projectId: project.id } } }), [ws, project.id, version]);
+  const views = useQuery(["/api/v1/workspaces/{workspaceId}/views", "components/views/project-views:0", ws, project.id, version], () => api.GET("/api/v1/workspaces/{workspaceId}/views", { params: { path: { workspaceId: ws }, query: { projectId: project.id } } }));
 
   const setUrl = (patch: Record<string, string | null>) => {
     const next = new URLSearchParams(params.toString());
@@ -76,10 +76,7 @@ export function ProjectViews() {
   };
 
   // Open a view named in the URL (shared links) once it has loaded.
-  const fromUrl = useQuery(
-    async () => (viewParam && viewParam !== appliedFromUrl ? api.GET("/api/v1/workspaces/{workspaceId}/views/{viewId}", { params: { path: { workspaceId: ws, viewId: viewParam } } }) : { data: undefined }),
-    [ws, viewParam, appliedFromUrl],
-  );
+  const fromUrl = useQuery(["/api/v1/workspaces/{workspaceId}/views/{viewId}", "components/views/project-views:1", ws, viewParam, appliedFromUrl], async () => (viewParam && viewParam !== appliedFromUrl ? api.GET("/api/v1/workspaces/{workspaceId}/views/{viewId}", { params: { path: { workspaceId: ws, viewId: viewParam } } }) : { data: undefined }));
   if (fromUrl.data && viewParam === fromUrl.data.id && appliedFromUrl !== viewParam) {
     setAppliedFromUrl(viewParam);
     setApplied(fromUrl.data);

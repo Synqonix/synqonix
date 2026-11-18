@@ -16,7 +16,10 @@ describe('SignedTokens', () => {
   it('rejects tampered, foreign and expired tokens', () => {
     const t = make();
     const token = t.sign({ a: 1 }, 60);
-    expect(() => t.verify(token.replace(/.$/, (c) => (c === 'A' ? 'B' : 'A')))).toThrow(UnauthorizedException);
+    // Change the first signature character: the last one of a base64url MAC can carry unused bits,
+    // so altering it may not change the decoded bytes at all.
+    const [body, sig] = token.split('.');
+    expect(() => t.verify(`${body}.${sig[0] === 'A' ? 'B' : 'A'}${sig.slice(1)}`)).toThrow(UnauthorizedException);
     expect(() => make('b'.repeat(32)).verify(token)).toThrow(UnauthorizedException);
     expect(() => t.verify(undefined)).toThrow(UnauthorizedException);
     expect(() => t.verify('nodot')).toThrow(UnauthorizedException);

@@ -30,7 +30,8 @@ export function TaskList({ state, projectId, activeKey, onOpen, onLoaded }: {
   const { workspace, members } = useWorkspace();
   const project = useProjectOptional();
   const ws = workspace.id;
-  const [offset, setOffset] = useState(0);
+  // Cursors of the pages after the first, so "Previous" can step back (cursors only go forward).
+  const [cursors, setCursors] = useState<string[]>([]);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [error, setError] = useState<string | null>(null);
   const quick = useRef<HTMLInputElement>(null);
@@ -40,19 +41,16 @@ export function TaskList({ state, projectId, activeKey, onOpen, onLoaded }: {
   const [pageKey, setPageKey] = useState(filterKey);
   if (pageKey !== filterKey) {
     setPageKey(filterKey);
-    setOffset(0);
+    setCursors([]);
   }
-  const effectiveOffset = pageKey === filterKey ? offset : 0;
+  const cursor = pageKey === filterKey ? cursors.at(-1) : undefined;
 
-  const tasks = useQuery(
-    () => api.GET("/api/v1/workspaces/{workspaceId}/tasks", {
+  const tasks = useQuery(["/api/v1/workspaces/{workspaceId}/tasks", "components/tasks/task-list:0", ws, filterKey, cursor], () => api.GET("/api/v1/workspaces/{workspaceId}/tasks", {
       params: {
         path: { workspaceId: ws },
-        query: { ...filterParams(state.filters), projectId, sort: state.sort, order: state.order, limit: PAGE, offset: effectiveOffset },
+        query: { ...filterParams(state.filters), projectId, sort: state.sort, order: state.order, limit: PAGE, cursor },
       },
-    }).then((r) => { if (r.data) onLoaded?.(r.data.total); return r; }),
-    [ws, filterKey, effectiveOffset],
-  );
+    }).then((r) => { if (r.data) onLoaded?.(r.data.total); return r; }));
   useProjectEvents(projectId, () => tasks.reload());
 
   const hidden = new Set(state.hiddenColumns);
@@ -170,8 +168,8 @@ export function TaskList({ state, projectId, activeKey, onOpen, onLoaded }: {
       <div className="flex items-center justify-between text-sm text-muted-foreground">
         <span>{total} task{total === 1 ? "" : "s"}</span>
         <span className="flex items-center gap-2">
-          <Button size="sm" variant="outline" disabled={effectiveOffset === 0} onClick={() => setOffset(Math.max(0, effectiveOffset - PAGE))}>Previous</Button>
-          <Button size="sm" variant="outline" disabled={effectiveOffset + PAGE >= total} onClick={() => setOffset(effectiveOffset + PAGE)}>Next</Button>
+          <Button size="sm" variant="outline" disabled={cursor === undefined} onClick={() => setCursors((c) => c.slice(0, -1))}>Previous</Button>
+          <Button size="sm" variant="outline" disabled={!tasks.data?.nextCursor} onClick={() => { const next = tasks.data?.nextCursor; if (next) setCursors((c) => [...c, next]); }}>Next</Button>
         </span>
       </div>
     </div>

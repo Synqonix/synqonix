@@ -1,20 +1,11 @@
-"use client";
+import type { Metadata } from "next";
+import View from "./view";
 
-import Link from "next/link";
-import { useParams, useRouter } from "next/navigation";
-import { TaskDetailView } from "@/components/tasks/task-detail";
+// The key in the URL (e.g. SYN-12) is a good tab title and needs no data: tasks load in the browser.
+export async function generateMetadata({ params }: PageProps<"/w/[workspaceId]/tasks/[taskRef]">): Promise<Metadata> {
+  return { title: decodeURIComponent((await params).taskRef).toUpperCase() };
+}
 
-export default function TaskPage() {
-  const { workspaceId, taskRef } = useParams<{ workspaceId: string; taskRef: string }>();
-  const router = useRouter();
-  return (
-    <div className="grid gap-4">
-      <Link href={`/w/${workspaceId}`} className="text-sm text-muted-foreground hover:text-foreground">← Projects</Link>
-      <TaskDetailView
-        taskRef={decodeURIComponent(taskRef)}
-        onNavigate={(key) => router.push(`/w/${workspaceId}/tasks/${key}`)}
-        onClose={() => router.push(`/w/${workspaceId}`)}
-      />
-    </div>
-  );
+export default function Page() {
+  return <View />;
 }

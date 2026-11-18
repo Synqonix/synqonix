@@ -21,7 +21,7 @@ const reviewLabel = { APPROVED: "Approved", CHANGES_REQUESTED: "Changes requeste
 /** Branches, pull requests (with CI and review state) and commits tied to the task. Hidden when there is nothing to show. */
 export function Development({ taskId, ws, canEdit, version }: { taskId: string; ws: string; canEdit: boolean; version: number }) {
   const path = { workspaceId: ws, taskId };
-  const data = useQuery(() => api.GET("/api/v1/workspaces/{workspaceId}/tasks/{taskId}/github", { params: { path } }), [ws, taskId, version]);
+  const data = useQuery(["/api/v1/workspaces/{workspaceId}/tasks/{taskId}/github", "components/github/development:0", ws, taskId, version], () => api.GET("/api/v1/workspaces/{workspaceId}/tasks/{taskId}/github", { params: { path } }));
   const [creating, setCreating] = useState(false);
   const [repoId, setRepoId] = useState("");
   const [name, setName] = useState("");

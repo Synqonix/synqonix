@@ -28,12 +28,9 @@ export function TimelineView({ state, projectId, activeKey, onOpen }: {
   const [start, setStart] = useState(() => weekStart(new Date()) - 7 * DAY);
 
   const filterKey = JSON.stringify(filterParams(state.filters));
-  const tasks = useQuery(
-    () => api.GET("/api/v1/workspaces/{workspaceId}/tasks", {
+  const tasks = useQuery(["/api/v1/workspaces/{workspaceId}/tasks", "components/views/timeline:0", workspace.id, projectId, filterKey], () => api.GET("/api/v1/workspaces/{workspaceId}/tasks", {
       params: { path: { workspaceId: workspace.id }, query: { ...filterParams(state.filters), projectId, sort: "startDate", order: "asc", limit: 200 } },
-    }),
-    [workspace.id, projectId, filterKey],
-  );
+    }));
   useProjectEvents(projectId, () => tasks.reload());
 
   const rows = (tasks.data?.items ?? [])

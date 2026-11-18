@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { api, errorMessage } from "./client";
 import { tokenStore } from "@/lib/auth/token-store";
@@ -16,17 +17,20 @@ describe("errorMessage", () => {
 
 describe("authenticated client", () => {
   const calls: { url: string; auth: string | null; body: string }[] = [];
+  const refreshRequests: Request[] = [];
 
   beforeEach(() => {
     calls.length = 0;
+    refreshRequests.length = 0;
     localStorage.clear();
-    tokenStore.set({ accessToken: "old", refreshToken: "r0" });
+    tokenStore.set({ accessToken: "old" });
     vi.stubGlobal("fetch", async (input: Request) => {
       calls.push({ url: input.url, auth: input.headers.get("authorization"), body: await input.clone().text() });
       const json = (status: number, body: unknown) =>
         new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
       if (input.url.endsWith("/auth/refresh")) {
-        return json(200, { accessToken: "new", refreshToken: "r1", user: { id: "1" } });
+        refreshRequests.push(input);
+        return json(200, { accessToken: "new", user: { id: "1" } });
       }
       return input.headers.get("authorization") === "Bearer new" ? json(200, { ok: true }) : json(401, { message: "expired" });
     });
@@ -44,6 +48,9 @@ describe("authenticated client", () => {
     expect(replays[1].auth).toBe("Bearer new");
     expect(replays[1].body).toBe(replays[0].body);
     expect(replays[1].body).toContain("bbbbbbbb");
-    expect(tokenStore.getRefreshToken()).toBe("r1");
+    expect(tokenStore.get()).toBe("new");
+    // The refresh call relies on the httpOnly cookie, so it must send credentials.
+    expect(refreshRequests.every((r) => r.credentials === "include")).toBe(true);
+    expect(refreshRequests).toHaveLength(1);
   });
 });

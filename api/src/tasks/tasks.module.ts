@@ -13,6 +13,8 @@ import { TaskMoveService } from './task-move.service.js';
 import { TaskRankService } from './task-rank.service.js';
 import { TaskSupportService } from './task-support.service.js';
 import { TasksController } from './tasks.controller.js';
+import { TaskQueryService } from './task-query.service.js';
+import { TaskUpdateService } from './task-update.service.js';
 import { TasksService } from './tasks.service.js';
 import { WatchersService } from './watchers.service.js';
 import { ViewsModule } from '../views/views.module.js';
@@ -22,9 +24,9 @@ import { WorkspacesModule } from '../workspaces/workspaces.module.js';
   imports: [WorkspacesModule, ViewsModule],
   controllers: [TasksController, TaskDetailsController, CustomFieldsController],
   providers: [
-    TasksService, TaskMoveService, TaskRankService, RecentTasksService, TaskAccessService, TaskSupportService, ActivityService, CommentsService,
+    TasksService, TaskQueryService, TaskUpdateService, TaskMoveService, TaskRankService, RecentTasksService, TaskAccessService, TaskSupportService, ActivityService, CommentsService,
     ChecklistsService, RelationsService, WatchersService, AttachmentsService, CustomFieldsService,
   ],
-  exports: [TasksService, TaskAccessService, ActivityService, CommentsService],
+  exports: [TasksService, TaskQueryService, TaskUpdateService, TaskAccessService, ActivityService, CommentsService],
 })
 export class TasksModule {}

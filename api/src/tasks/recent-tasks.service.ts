@@ -2,10 +2,10 @@ import { Injectable } from '@nestjs/common';
 import type { Membership } from '../generated/prisma/client.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { ProjectAccessService } from '../projects/project-access.service.js';
-import type { TaskListDto } from './dto/task.dto.js';
+import type { TaskListDto } from './dto/task-response.dto.js';
 import { TaskAccessService } from './task-access.service.js';
 import { summaryInclude } from './task-mapper.js';
-import { TasksService } from './tasks.service.js';
+import { TaskQueryService } from './task-query.service.js';
 
 const KEEP = 50;
 
@@ -15,7 +15,7 @@ export class RecentTasksService {
     private readonly prisma: PrismaService,
     private readonly access: TaskAccessService,
     private readonly projects: ProjectAccessService,
-    private readonly tasks: TasksService,
+    private readonly tasks: TaskQueryService,
   ) {}
 
   /** Remembers that the caller opened a task; keeps only the latest `KEEP` per user. */
@@ -43,6 +43,6 @@ export class RecentTasksService {
       }),
       this.prisma.recentTask.count({ where }),
     ]);
-    return { items: await this.tasks.toDtos(rows.map((r) => r.task)), total };
+    return { items: await this.tasks.toDtos(rows.map((r) => r.task)), total, nextCursor: null }; // one page of recent views
   }
 }

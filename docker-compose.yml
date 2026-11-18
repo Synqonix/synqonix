@@ -3,12 +3,12 @@
 #   docker compose up --build
 #
 # then open http://localhost:3000, register an account, and read the verification email in the
-# inbox at http://localhost:8025. Add `--profile demo` to also load a sample workspace
+# inbox at http://localhost:6245 (Dev-Remail). Add `--profile demo` to also load a sample workspace
 # (sign in as demo@synqonix.local / demo-password-123).
 #
 # This setup is for trying Synqonix and for local use. It uses fixed development secrets and plain
 # HTTP on localhost. For a real deployment use docker-compose.prod.yml (docs/deployment.md).
-# For developing the code, use docker-compose.dev.yml (Postgres + Mailpit only).
+# For developing the code, use docker-compose.dev.yml (Postgres + Dev-Remail only).
 name: synqonix-app
 
 services:
@@ -27,17 +27,28 @@ services:
       retries: 20
 
   # Catches every email the app sends (verification, password reset, notifications).
-  mailpit:
-    image: axllent/mailpit
+  # Dev-Remail: a local, Resend-compatible mailbox. The API sends with the same Resend SDK as in
+  # production; read the mail at http://localhost:6245. It has no login, so it stays on localhost.
+  dev-remail:
+    image: abdullahqasim01/dev-remail:0.1.0
     restart: unless-stopped
-    ports: ["8025:8025"]
+    ports: ["127.0.0.1:6245:6245"]
+    volumes: [devremail:/data]
+  # Like Resend, Dev-Remail only sends from registered domains: register MAIL_FROM's domain once.
+  # (A second run answers "already registered", which is fine.)
+  dev-remail-setup:
+    image: curlimages/curl:8.11.1
+    depends_on:
+      dev-remail: { condition: service_healthy }
+    restart: "no"
+    command: ["-sS", "-X", "POST", "http://dev-remail:6245/domains", "-H", "Authorization: Bearer re_dev", "-H", "Content-Type: application/json", "-d", "{\"name\":\"synqonix.local\"}"]
 
   api:
     build: ./api
     restart: unless-stopped
     depends_on:
       postgres: { condition: service_healthy }
-      mailpit: { condition: service_started }
+      dev-remail-setup: { condition: service_completed_successfully }
     environment:
       # Development mode accepts the built-in dev secrets; production mode (docker-compose.prod.yml) does not.
       NODE_ENV: development
@@ -45,13 +56,15 @@ services:
       DATABASE_URL: postgresql://synqonix:synqonix@postgres:5432/synqonix
       WEB_URL: http://localhost:3000
       API_PUBLIC_URL: http://localhost:4000
-      SMTP_HOST: mailpit
-      SMTP_PORT: 1025
+      RESEND_API_KEY: re_dev
+      RESEND_BASE_URL: http://dev-remail:6245
       MAIL_FROM: Synqonix <no-reply@synqonix.local>
       STORAGE_DRIVER: local
       UPLOAD_DIR: /app/uploads
     volumes: [uploads:/app/uploads]
-    ports: ["4000:4000"]
+    # Loopback only: this stack runs in development mode with publicly known keys, so it must not
+    # be reachable from other machines. Shared deployments use docker-compose.prod.yml.
+    ports: ["127.0.0.1:4000:4000"]
 
   web:
     build:
@@ -62,7 +75,7 @@ services:
     restart: unless-stopped
     depends_on:
       api: { condition: service_healthy }
-    ports: ["3000:3000"]
+    ports: ["127.0.0.1:3000:3000"]
 
   # Optional sample data: docker compose --profile demo up
   seed:
@@ -73,9 +86,11 @@ services:
     environment:
       SKIP_MIGRATIONS: "1"
       SYNQONIX_API: http://api:4000
+      DEV_REMAIL_URL: http://dev-remail:6245
     command: ["node", "scripts/seed-demo.mjs"]
     restart: "no"
 
 volumes:
   pgdata:
   uploads:
+  devremail:

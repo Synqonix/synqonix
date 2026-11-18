@@ -13,6 +13,8 @@ export interface SetupOptions {
   logFormat?: 'json' | 'pretty';
   /** No request or error logging (tests). */
   quiet?: boolean;
+  /** Share realtime events across API instances through Redis. */
+  redis?: { url: string; prefix: string };
 }
 
 export function setupApp(app: NestExpressApplication, webUrl: string, opts: SetupOptions = {}) {
@@ -28,7 +30,7 @@ export function setupApp(app: NestExpressApplication, webUrl: string, opts: Setu
   app.useGlobalPipes(
     new ValidationPipe({ whitelist: true, transform: true, forbidNonWhitelisted: true }),
   );
-  app.useWebSocketAdapter(new SocketIoAdapter(app, webUrl));
+  app.useWebSocketAdapter(new SocketIoAdapter(app, webUrl, opts.redis));
   app.enableShutdownHooks();
 }
 

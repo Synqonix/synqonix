@@ -195,12 +195,24 @@ describe('Retention (e2e)', () => {
     await delivery('SUCCESS', ago(40)); await delivery('FAILED', ago(40)); await delivery('PENDING', ago(40)); await delivery('SUCCESS', ago(5));
     await prisma.webhookDelivery.createMany({ data: [{ id: 'old', event: 'push', receivedAt: ago(40) }, { id: 'new', event: 'push', receivedAt: ago(1) }] });
 
-    expect(await retention.run(now)).toEqual({ auditLogs: 1, notifications: 1, webhookDeliveries: 2, githubDeliveries: 1 });
+    // Sign-ups whose link was never used go after a week, unless the account was ever used.
+    await prisma.user.create({ data: { email: 'abandoned@example.com', name: 'A', passwordHash: 'x', createdAt: ago(8) } });
+    await prisma.user.create({ data: { email: 'fresh@example.com', name: 'F', passwordHash: 'x', createdAt: ago(1) } });
+    const legacy = await prisma.user.create({ data: { email: 'legacy@example.com', name: 'L', passwordHash: 'x', createdAt: ago(30) } });
+    await prisma.membership.create({ data: { workspaceId: ws, userId: legacy.id, role: 'MEMBER' } });
+    await prisma.loginThrottle.createMany({ data: [
+      { email: 'stale@example.com', failures: 3, windowStart: ago(2) },
+      { email: 'locked@example.com', failures: 0, windowStart: ago(2), lockedUntil: new Date(now.getTime() + 60_000) },
+    ] });
+
+    expect(await retention.run(now)).toEqual({ auditLogs: 1, notifications: 1, webhookDeliveries: 2, githubDeliveries: 1, unverifiedSignups: 1, loginThrottles: 1 });
+    expect((await prisma.user.findMany({ where: { emailVerifiedAt: null }, select: { email: true } })).map((u) => u.email).sort()).toEqual(['fresh@example.com', 'legacy@example.com']);
+    expect((await prisma.loginThrottle.findMany()).map((t) => t.email)).toEqual(['locked@example.com']);
     expect((await prisma.auditLog.findMany({ select: { action: true } })).map((a) => a.action)).toEqual(['recent']);
     expect(await prisma.notification.count()).toBe(2);
     expect((await prisma.outboundDelivery.findMany({ select: { status: true } })).map((d) => d.status).sort()).toEqual(['PENDING', 'SUCCESS']);
     expect((await prisma.webhookDelivery.findMany()).map((d) => d.id)).toEqual(['new']);
-    expect(await retention.run(now)).toEqual({ auditLogs: 0, notifications: 0, webhookDeliveries: 0, githubDeliveries: 0 });
+    expect(await retention.run(now)).toEqual({ auditLogs: 0, notifications: 0, webhookDeliveries: 0, githubDeliveries: 0, unverifiedSignups: 0, loginThrottles: 0 });
     void http;
   });
 });

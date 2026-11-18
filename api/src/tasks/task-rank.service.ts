@@ -2,14 +2,16 @@ import { BadRequestException, Injectable } from '@nestjs/common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import type { Membership, Prisma } from '../generated/prisma/client.js';
 import { PrismaService } from '../prisma/prisma.service.js';
-import type { RankTaskDto, TaskDto } from './dto/task.dto.js';
+import type { RankTaskDto } from './dto/task.dto.js';
+import type { TaskDto } from './dto/task-response.dto.js';
 import { TaskEvents, type TaskEvent } from './events.js';
 import { POSITION_STEP, positionBetween } from './ranking.js';
 import { TaskAccessService } from './task-access.service.js';
 import { summaryInclude } from './task-mapper.js';
 import { taskKey } from './task-ref.js';
 import { TaskSupportService } from './task-support.service.js';
-import { TasksService } from './tasks.service.js';
+import { TaskQueryService } from './task-query.service.js';
+import { TaskUpdateService } from './task-update.service.js';
 
 type Tx = Prisma.TransactionClient;
 
@@ -25,7 +27,8 @@ export class TaskRankService {
     private readonly prisma: PrismaService,
     private readonly access: TaskAccessService,
     private readonly support: TaskSupportService,
-    private readonly tasks: TasksService,
+    private readonly updates: TaskUpdateService,
+    private readonly query: TaskQueryService,
     private readonly events: EventEmitter2,
   ) {}
 
@@ -48,7 +51,7 @@ export class TaskRankService {
       await this.assertNeighbor(tx, column, dto);
 
       if (target.id !== current.statusId) {
-        await this.tasks.applyUpdate(tx, m, project, task.id, { statusId: target.id }, events);
+        await this.updates.applyUpdate(tx, m, project, task.id, { statusId: target.id }, events);
       }
       await this.place(tx, project.id, task.id, column, dto);
       return target.id;
@@ -73,7 +76,7 @@ export class TaskRankService {
       const list: Prisma.TaskWhereInput = { projectId: project.id, archivedAt: null, sprintId: dto.sprintId, id: { not: task.id } };
       await this.assertNeighbor(tx, list, dto);
       if (dto.sprintId !== task.sprintId) {
-        await this.tasks.applyUpdate(tx, m, project, task.id, { sprintId: dto.sprintId }, events);
+        await this.updates.applyUpdate(tx, m, project, task.id, { sprintId: dto.sprintId }, events);
       }
       await this.place(tx, project.id, task.id, list, dto);
     });
@@ -140,6 +143,6 @@ export class TaskRankService {
 
   private async summary(taskId: string): Promise<TaskDto> {
     const row = await this.prisma.task.findUniqueOrThrow({ where: { id: taskId }, include: summaryInclude });
-    return (await this.tasks.toDtos([row]))[0];
+    return (await this.query.toDtos([row]))[0];
   }
 }

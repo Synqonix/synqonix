@@ -1,6 +1,7 @@
 import { Body, Controller, Delete, Get, HttpCode, Param, Patch, Post, Query, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiCreatedResponse, ApiOkResponse, ApiParam, ApiTags } from '@nestjs/swagger';
 import type { Membership } from '../generated/prisma/client.js';
+import { CurrentUser, type AuthUser } from '../common/decorators.js';
 import { CurrentMembership, RequirePermission, WorkspaceGuard } from '../permissions/workspace.guard.js';
 import { LogTimeDto, StartTimerDto, TaskTimeDto, TimeEntryDto, TimerDto, TimesheetQueryDto, UpdateTimeEntryDto } from './dto/time.dto.js';
 import { TimeService } from './time.service.js';
@@ -48,15 +49,15 @@ export class TimeController {
 
   @Post('time/timer/start') @HttpCode(200) @RequirePermission('task.write')
   @ApiOkResponse({ type: TimerDto })
-  start(@CurrentMembership() m: Membership, @Body() dto: StartTimerDto) {
-    return this.time.start(m, dto.taskRef);
+  start(@CurrentMembership() m: Membership, @CurrentUser() user: AuthUser, @Body() dto: StartTimerDto) {
+    return this.time.start(m, dto.taskRef, new Date(), { boundToWorkspace: !!user.tokenWorkspaceId });
   }
 
   /** Stops the running timer; `entry` is the finished entry, or null when there was none (or it ran under a minute). */
   @Post('time/timer/stop') @HttpCode(200) @RequirePermission('task.read')
   @ApiOkResponse({ type: TimerDto })
-  async stop(@CurrentMembership() m: Membership) {
-    return { entry: await this.time.stop(m) };
+  async stop(@CurrentMembership() m: Membership, @CurrentUser() user: AuthUser) {
+    return { entry: await this.time.stop(m, new Date(), { boundToWorkspace: !!user.tokenWorkspaceId }) };
   }
 
   @Get('time/mine') @RequirePermission('task.read')

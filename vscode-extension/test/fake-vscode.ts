@@ -104,6 +104,7 @@ export const window = {
 
 export const workspace = {
   getConfiguration() { return { get: <T>(k: string) => host.config[k] as T | undefined }; },
+  onDidChangeConfiguration() { return { dispose() {} }; },
   get workspaceFolders() { return host.folders.map((f) => ({ uri: Uri.file(f) })); },
   createFileSystemWatcher() { return { onDidChange: () => new Disposable(), onDidCreate: () => new Disposable(), dispose() {} }; },
 };

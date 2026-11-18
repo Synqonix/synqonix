@@ -347,12 +347,14 @@
         "synqonix.apiUrl": {
           "type": "string",
           "default": "http://localhost:4000",
-          "description": "Base URL of the Synqonix API"
+          "scope": "machine",
+          "markdownDescription": "Base URL of the Synqonix API. Machine-scoped on purpose: a repository's `.vscode/settings.json` cannot redirect your token. Must be HTTPS (plain HTTP only for localhost). Changing it signs you out."
         },
         "synqonix.webUrl": {
           "type": "string",
           "default": "http://localhost:3000",
-          "description": "Base URL of the Synqonix web app (used for browser sign-in and \u201cOpen in browser\u201d)"
+          "scope": "machine",
+          "description": "Base URL of the Synqonix web app (used for browser sign-in and “Open in browser”)"
         },
         "synqonix.notifications.enabled": {
           "type": "boolean",
@@ -368,17 +370,17 @@
         "synqonix.startTask.moveToInProgress": {
           "type": "boolean",
           "default": true,
-          "description": "\u201cStart task\u201d moves the task to the first In Progress status"
+          "description": "“Start task” moves the task to the first In Progress status"
         },
         "synqonix.startTask.assignToMe": {
           "type": "boolean",
           "default": true,
-          "description": "\u201cStart task\u201d assigns the task to you"
+          "description": "“Start task” assigns the task to you"
         },
         "synqonix.startTask.startTimer": {
           "type": "boolean",
           "default": false,
-          "description": "\u201cStart task\u201d also starts the time tracker"
+          "description": "“Start task” also starts the time tracker"
         },
         "synqonix.startTask.baseBranch": {
           "type": "string",
@@ -427,7 +429,8 @@
     "vitest": "^5.0.3"
   },
   "dependencies": {
-    "openapi-fetch": "^0.17.0"
+    "openapi-fetch": "^0.17.0",
+    "socket.io-client": "^4.8.4"
   },
   "repository": {
     "type": "git",

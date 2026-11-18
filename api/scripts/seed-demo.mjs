@@ -1,8 +1,11 @@
 #!/usr/bin/env node
 // Fills a running API with a small demo workspace so a fresh install has something to look at.
 //   SYNQONIX_API=http://localhost:4000 node scripts/seed-demo.mjs
-// Safe to re-run: it signs in to the demo account if it already exists and stops if the demo project is there.
+// Sign-up finishes through the emailed link, which this reads from Dev-Remail (DEV_REMAIL_URL), the
+// development mailbox the API sends to. Safe to re-run: it signs in to the demo account if it already
+// exists and stops if the demo project is there.
 const API = (process.env.SYNQONIX_API ?? 'http://localhost:4000').replace(/\/+$/, '') + '/api/v1';
+const MAIL = (process.env.DEV_REMAIL_URL ?? 'http://localhost:6245').replace(/\/+$/, '');
 const EMAIL = process.env.DEMO_EMAIL ?? 'demo@synqonix.local';
 const PASSWORD = process.env.DEMO_PASSWORD ?? 'demo-password-123';
 
@@ -16,12 +19,30 @@ async function call(path, { method = 'GET', token, body } = {}) {
   return res.status === 204 ? undefined : res.json();
 }
 
+/** The token in the newest verification link emailed to `to` (Dev-Remail speaks Resend's API). */
+async function verificationToken(to) {
+  const get = async (path) => (await fetch(MAIL + path, { headers: { authorization: 'Bearer re_dev' } })).json();
+  for (let i = 0; i < 50; i++) {
+    const { data = [] } = await get('/emails?limit=100');
+    const mine = data.filter((e) => e.to.includes(to)).sort((a, b) => b.created_at.localeCompare(a.created_at));
+    for (const e of mine) {
+      const token = /\/verify-email\?token=([^\s"<]+)/.exec((await get(`/emails/${e.id}`)).text)?.[1];
+      if (token) return decodeURIComponent(token);
+    }
+    await new Promise((r) => setTimeout(r, 200));
+  }
+  throw new Error(`No verification email for ${to} in Dev-Remail at ${MAIL}`);
+}
+
 let session;
 try {
-  session = await call('/auth/register', { method: 'POST', body: { email: EMAIL, name: 'Demo User', password: PASSWORD } });
-} catch (e) {
-  if (e.status !== 409) throw e;
   session = await call('/auth/login', { method: 'POST', body: { email: EMAIL, password: PASSWORD } });
+} catch (e) {
+  if (e.status !== 401 && e.status !== 403) throw e;
+  // New (401), or registered but never verified (403): register (re)sends the link; using it signs in.
+  await call('/auth/register', { method: 'POST', body: { email: EMAIL, name: 'Demo User', password: PASSWORD } });
+  // Opened here rather than in a browser, the link sets the password.
+  session = await call('/auth/verify-email', { method: 'POST', body: { token: await verificationToken(EMAIL), password: PASSWORD } });
 }
 const token = session.accessToken;
 

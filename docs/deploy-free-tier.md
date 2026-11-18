@@ -8,7 +8,7 @@ Free-tier limits change. The numbers below are what each provider advertised whe
 
 | What | Why |
 |---|---|
-| A **domain name** (about $10/year) | Resend only sends to arbitrary addresses from a domain you have verified, and one parent domain for web + API avoids cross-site problems. It is the only unavoidable cost. |
+| A **domain name** (about $10/year) | Resend only sends to arbitrary addresses from a domain you have verified, and web + API **must** share one parent domain (`app.yourdomain.com` + `api.yourdomain.com`): the sign-in session lives in a `SameSite=Lax` cookie that browsers only send between same-site addresses. It is the only unavoidable cost. |
 | A GitHub repo with this code | Vercel and Northflank both build from it. |
 | **Vercel plan check** | Vercel's free *Hobby* plan is for personal, non-commercial use. An organization's internal tool normally needs *Pro*. If you want to stay at zero cost, host the web app on Northflank too (`web/Dockerfile`) or on Cloudflare Pages. |
 
@@ -69,7 +69,7 @@ Free-plan limits (about 100 emails/day) are plenty for verification, reset and n
 
 1. Create a project in a region near the database. Add a **Combined service** (build + deploy) from your GitHub repo:
    - Build type: **Dockerfile**, Dockerfile path `/api/Dockerfile`, build context `/api`.
-   - Port `4000`, protocol **HTTP**, publicly exposed. Northflank gives you a `https://….code.run` address (add your own domain under **Domains** if you like, for example `api.yourdomain.com`).
+   - Port `4000`, protocol **HTTP**, publicly exposed. Northflank gives you a `https://….code.run` address; add your own domain under **Domains**, for example `api.yourdomain.com`. This is required: with the API on `….code.run` and the web app on another domain, browsers will not send the session cookie and users are signed out every 15 minutes.
    - Health check: HTTP `GET /api/v1/health/live` on port 4000 for liveness, `/api/v1/health/ready` for readiness.
    - Plan: the free **sandbox** resources. Keep **one** instance (see *Scaling* in `docs/deployment.md`).
 2. Add the environment as a **secret group** attached to the service:
@@ -80,6 +80,7 @@ Free-plan limits (about 100 emails/day) are plenty for verification, reset and n
    | `DATABASE_URL` | Neon **direct** string (section 1) |
    | `WEB_URL` | your web address, exactly, e.g. `https://app.yourdomain.com` (no trailing slash; it is the CORS origin and the base of emailed links) |
    | `JWT_ACCESS_SECRET`, `JWT_REFRESH_SECRET` | two different random strings: `openssl rand -base64 48` |
+   | `ENCRYPTION_KEY` | a third, different random string (same command); keep a copy, losing it makes stored webhook secrets unreadable |
    | `STORAGE_DRIVER`, `S3_*` | Filebase values (section 2) |
    | `RESEND_API_KEY`, `MAIL_FROM` | Resend values (section 3) |
    | `TRUST_PROXY` | `1` |
@@ -93,7 +94,7 @@ Free-plan limits (about 100 emails/day) are plenty for verification, reset and n
 
 1. Import the repo. **Root directory:** `web`. Framework: Next.js (detected).
 2. Environment variables (all environments):
-   - `NEXT_PUBLIC_API_URL` = your API address (`https://….code.run` or `https://api.yourdomain.com`)
+   - `NEXT_PUBLIC_API_URL` = your API address on your own domain, e.g. `https://api.yourdomain.com` (not the `….code.run` address; see the API step)
    - `NEXT_PUBLIC_STORAGE_URL` = `https://s3.filebase.com` (so the Content-Security-Policy lets the browser upload there)
 3. Deploy, then add your domain (`app.yourdomain.com`) under **Domains**. `NEXT_PUBLIC_*` values are compiled in, so changing them needs a redeploy.
 4. Go back to Northflank and make sure `WEB_URL` equals the final web address, and to Filebase to put that address in the CORS rules.

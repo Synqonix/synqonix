@@ -6,7 +6,16 @@ it("allows relative paths", () => {
 });
 
 it("rejects external or malformed targets", () => {
-  for (const bad of ["https://evil.com", "//evil.com", "/\\evil.com", "javascript:alert(1)", "", null, undefined]) {
-    expect(safeNext(bad as string | null)).toBe("/dashboard");
+  const bad = [
+    "https://evil.com", "//evil.com", "/\\evil.com", "javascript:alert(1)", "", null, undefined,
+    "/\t/evil.com", "/\n/evil.com", "/\r/evil.com", "/\u0000/evil.com", "/\t\t//evil.com",
+  ];
+  for (const b of bad) {
+    expect(safeNext(b as string | null)).toBe("/dashboard");
   }
+});
+
+it("keeps path, query and hash of valid targets", () => {
+  expect(safeNext("/w/1/tasks/SYN-2?tab=a#c")).toBe("/w/1/tasks/SYN-2?tab=a#c");
+  expect(safeNext("/invitations/abc%2Fdef")).toBe("/invitations/abc%2Fdef");
 });

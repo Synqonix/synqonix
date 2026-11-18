@@ -38,10 +38,7 @@ export function WorkspaceSidebar({ workspaceId, onNewTask, onNavigate }: { works
   const { workspace } = useWorkspace();
   const pathname = usePathname();
   const { channels, totalUnread } = useChat();
-  const projects = useQuery(
-    () => api.GET("/api/v1/workspaces/{workspaceId}/projects", { params: { path: { workspaceId }, query: { includeArchived: false } } }),
-    [workspaceId],
-  );
+  const projects = useQuery(["/api/v1/workspaces/{workspaceId}/projects", "components/shell/workspace-sidebar:0", workspaceId], () => api.GET("/api/v1/workspaces/{workspaceId}/projects", { params: { path: { workspaceId }, query: { includeArchived: false } } }));
 
   const base = `/w/${workspaceId}`;
   const nav = [

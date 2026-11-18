@@ -1,6 +1,7 @@
 import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { createHmac, timingSafeEqual } from 'node:crypto';
+import { randomBytes } from 'node:crypto';
+import { sha256 } from '../common/crypto.js';
 import type { Env } from '../config/env.js';
 import type { LinkedRepository, Membership } from '../generated/prisma/client.js';
 import { isWorkspaceAdmin } from '../permissions/permissions.js';
@@ -32,28 +33,23 @@ export class GithubService {
 
   // ---------------------------------------------------------------- installing
 
-  private sign(payload: string) {
-    return createHmac('sha256', `github-install:${this.config.get('JWT_ACCESS_SECRET')}`).update(payload).digest('base64url');
+  /**
+   * A random, short-lived, single-use value carried through GitHub's install redirect. Only its
+   * hash is stored, together with the workspace and the admin who started the connection.
+   */
+  private async makeState(workspaceId: string, userId: string) {
+    const state = randomBytes(32).toString('base64url');
+    await this.prisma.githubInstallState.deleteMany({ where: { expiresAt: { lt: new Date() } } });
+    await this.prisma.githubInstallState.create({ data: { stateHash: sha256(state), workspaceId, userId, expiresAt: new Date(Date.now() + STATE_TTL_MS) } });
+    return state;
   }
 
-  /** A signed, short-lived token carried through GitHub's install redirect so we know who started it. */
-  private makeState(workspaceId: string, userId: string) {
-    const body = Buffer.from(JSON.stringify({ w: workspaceId, u: userId, e: Date.now() + STATE_TTL_MS })).toString('base64url');
-    return `${body}.${this.sign(body)}`;
-  }
-
-  private readState(state: string): { workspaceId: string; userId: string } | null {
-    const [body, sig] = state.split('.');
-    if (!body || !sig) return null;
-    const expected = Buffer.from(this.sign(body));
-    const given = Buffer.from(sig);
-    if (expected.length !== given.length || !timingSafeEqual(expected, given)) return null;
-    try {
-      const p = JSON.parse(Buffer.from(body, 'base64url').toString()) as { w: string; u: string; e: number };
-      return p.e > Date.now() ? { workspaceId: p.w, userId: p.u } : null;
-    } catch {
-      return null;
-    }
+  /** Consumes the state: the same redirect cannot be replayed. */
+  private async takeState(state: string): Promise<{ workspaceId: string; userId: string } | null> {
+    const row = await this.prisma.githubInstallState.findUnique({ where: { stateHash: sha256(state) } });
+    if (!row) return null;
+    const taken = await this.prisma.githubInstallState.deleteMany({ where: { id: row.id, expiresAt: { gt: new Date() } } });
+    return taken.count === 1 ? { workspaceId: row.workspaceId, userId: row.userId } : null;
   }
 
   private requireAdmin(m: Membership) {
@@ -73,23 +69,26 @@ export class GithubService {
     };
   }
 
-  installUrl(m: Membership): GithubInstallUrlDto {
+  async installUrl(m: Membership): Promise<GithubInstallUrlDto> {
     this.requireAdmin(m);
-    const url = this.client.isConfigured() ? this.client.installUrl(this.makeState(m.workspaceId, m.userId)) : null;
+    const url = this.client.isConfigured() ? this.client.installUrl(await this.makeState(m.workspaceId, m.userId)) : null;
     if (!url) throw new BadRequestException('The GitHub integration is not configured on this server');
     return { url };
   }
 
   /** Where the browser lands after GitHub's install page; returns the web URL to redirect to. */
-  async completeInstall(state: string | undefined, installationId: string | undefined): Promise<string> {
+  async completeInstall(state: string | undefined, installationId: string | undefined, code?: string): Promise<string> {
     const web = this.config.get('WEB_URL');
-    const parsed = state ? this.readState(state) : null;
+    const parsed = state ? await this.takeState(state) : null;
     if (!parsed) return `${web}/dashboard?github=error`;
     const back = (result: string) => `${web}/w/${parsed.workspaceId}/settings?github=${result}`;
     if (!installationId || !/^\d+$/.test(installationId)) return back('error');
 
     const m = await this.prisma.membership.findUnique({ where: { workspaceId_userId: { workspaceId: parsed.workspaceId, userId: parsed.userId } } });
     if (!m || !isWorkspaceAdmin(m.role)) return back('error');
+    // The installation id in the redirect is just a query parameter anyone can edit. GitHub's own
+    // answer, for the person who just authorized, is what says they may connect this installation.
+    if (!code || !(await this.client.userAdministersInstallation(code, installationId).catch(() => false))) return back('unauthorized');
     const existing = await this.prisma.githubInstallation.findUnique({ where: { githubId: installationId } });
     if (existing && existing.workspaceId !== parsed.workspaceId) return back('taken');
     if (existing) return back('connected');

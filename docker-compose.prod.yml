@@ -17,6 +17,14 @@ services:
       timeout: 3s
       retries: 10
 
+  # Only needed to run several API instances: set REDIS_URL=redis://redis:6379 in api/.env.production
+  # and start with --profile redis.
+  redis:
+    image: redis:7.4-alpine
+    restart: unless-stopped
+    profiles: [redis]
+    volumes: [redisdata:/data]
+
   api:
     build: ./api
     restart: unless-stopped
@@ -36,3 +44,4 @@ services:
 volumes:
   pgdata:
   uploads:
+  redisdata:

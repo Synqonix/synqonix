@@ -2,7 +2,7 @@ import { Body, Controller, Delete, Get, HttpCode, Param, Patch, Post, Query, Use
 import { ApiBearerAuth, ApiCreatedResponse, ApiOkResponse, ApiParam, ApiTags } from '@nestjs/swagger';
 import type { Membership } from '../generated/prisma/client.js';
 import { CurrentMembership, RequirePermission, WorkspaceGuard } from '../permissions/workspace.guard.js';
-import { BulkResultDto, TaskDetailDto } from '../tasks/dto/task.dto.js';
+import { BulkResultDto, TaskDetailDto } from '../tasks/dto/task-response.dto.js';
 import {
   BacklogDto, BacklogQueryDto, BurndownDto, CompleteSprintDto, CompleteSprintResultDto, CreateMilestoneDto,
   CreateReleaseDto, CreateSprintDto, EpicProgressDto, FlowDto, FlowQueryDto, ListSprintsQueryDto, MilestoneDto,

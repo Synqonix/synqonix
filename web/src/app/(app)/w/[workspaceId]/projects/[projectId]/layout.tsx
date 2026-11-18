@@ -12,10 +12,7 @@ import { useQuery } from "@/lib/use-query";
 export default function ProjectLayout({ children }: { children: React.ReactNode }) {
   const { workspaceId, projectId } = useParams<{ workspaceId: string; projectId: string }>();
   const pathname = usePathname();
-  const project = useQuery(
-    () => api.GET("/api/v1/workspaces/{workspaceId}/projects/{projectId}", { params: { path: { workspaceId, projectId } } }),
-    [workspaceId, projectId],
-  );
+  const project = useQuery(["/api/v1/workspaces/{workspaceId}/projects/{projectId}", "app/(app)/w/[workspaceId]/projects/[projectId]/layout:0", workspaceId, projectId], () => api.GET("/api/v1/workspaces/{workspaceId}/projects/{projectId}", { params: { path: { workspaceId, projectId } } }));
 
   if (project.loading) return <p className="text-sm text-muted-foreground">Loading project…</p>;
   if (!project.data) return <Alert>{project.error ?? "Project not found"}</Alert>;

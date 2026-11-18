@@ -3,6 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import type { Env } from '../config/env.js';
 import { LocalStorage } from './local-storage.js';
 import { LocalStorageController } from './local-storage.controller.js';
+import { OrphanSweepService } from './orphan-sweep.service.js';
 import { S3Storage } from './s3-storage.js';
 import { SignedTokens } from './signed-token.js';
 import { StorageService } from './storage.service.js';
@@ -12,6 +13,7 @@ import { StorageService } from './storage.service.js';
   controllers: [LocalStorageController],
   providers: [
     SignedTokens,
+    OrphanSweepService,
     {
       provide: StorageService,
       inject: [ConfigService, SignedTokens],
@@ -26,6 +28,6 @@ import { StorageService } from './storage.service.js';
       },
     },
   ],
-  exports: [StorageService, SignedTokens],
+  exports: [StorageService, SignedTokens, OrphanSweepService],
 })
 export class StorageModule {}

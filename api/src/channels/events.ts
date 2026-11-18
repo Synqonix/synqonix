@@ -9,6 +9,8 @@ export const ProjectEvents = {
 
 export const WorkspaceEvents = {
   memberRemoved: 'workspace.member_removed',
+  /** A member's workspace role changed (it decides who sees private projects and their channels). */
+  memberRoleChanged: 'workspace.member_role_changed',
 } as const;
 
 export interface ProjectCreatedEvent {
@@ -38,6 +40,12 @@ export interface ProjectMemberChangedEvent {
 export interface WorkspaceMemberRemovedEvent {
   workspaceId: string;
   userId: string;
+}
+
+export interface WorkspaceMemberRoleChangedEvent {
+  workspaceId: string;
+  userId: string;
+  role: 'OWNER' | 'ADMIN' | 'MEMBER' | 'VIEWER';
 }
 
 /** Events the chat module emits; the realtime gateway turns them into socket messages. */
@@ -71,6 +79,7 @@ export interface ChatMemberEvent {
 }
 
 export interface ChatReadEvent {
+  workspaceId: string;
   userId: string;
   channelId: string;
   seq: number;

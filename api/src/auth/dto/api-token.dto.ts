@@ -1,4 +1,4 @@
-import { IsDateString, IsOptional, IsString, MaxLength, MinLength } from 'class-validator';
+import { ArrayNotEmpty, IsArray, IsDateString, IsIn, IsOptional, IsString, MaxLength, MinLength } from 'class-validator';
 
 export class CreateApiTokenDto {
   @IsString()
@@ -9,6 +9,18 @@ export class CreateApiTokenDto {
   @IsOptional()
   @IsDateString()
   expiresAt?: string;
+
+  /** Default `["read", "write"]`. `read` alone only allows GET requests. */
+  @IsOptional()
+  @IsArray()
+  @ArrayNotEmpty()
+  @IsIn(['read', 'write'], { each: true })
+  scopes?: ('read' | 'write')[];
+
+  /** Limit the token to one workspace you belong to. */
+  @IsOptional()
+  @IsString()
+  workspaceId?: string;
 }
 
 export class ApiTokenDto {
@@ -19,6 +31,9 @@ export class ApiTokenDto {
   lastUsedAt: Date | null;
   expiresAt: Date | null;
   createdAt: Date;
+  scopes: ('read' | 'write')[];
+  /** The workspace the token is limited to, if any. */
+  workspaceId: string | null;
 }
 
 export class CreatedApiTokenDto extends ApiTokenDto {

@@ -41,6 +41,14 @@ export const metrics = new Metrics();
 
 export type LogLine = Record<string, unknown>;
 
+/** Path segments that are bearer secrets (invitation links), replaced before anything is logged or reported. */
+const SECRET_SEGMENTS: [RegExp, string][] = [[/(\/invitations\/+)[^/?#]+/gi, '$1:token']];
+
+/** The request path without query string and without secrets, safe for logs and error reports. */
+export function loggablePath(url: string): string {
+  return SECRET_SEGMENTS.reduce((p, [re, to]) => p.replace(re, to), url.split('?')[0]);
+}
+
 /** One JSON object per line (or a readable line in development). Never logs query strings, headers or bodies. */
 export function writeLog(format: 'json' | 'pretty', line: LogLine, out: (s: string) => void = (s) => process.stdout.write(s)) {
   if (format === 'json') return out(`${JSON.stringify({ time: new Date().toISOString(), ...line })}\n`);
@@ -58,7 +66,7 @@ export function requestObserver(format: 'json' | 'pretty', quiet = false) {
     const started = process.hrtime.bigint();
     res.on('finish', () => {
       const ms = Number(process.hrtime.bigint() - started) / 1e6;
-      const path = req.originalUrl.split('?')[0];
+      const path = loggablePath(req.originalUrl);
       if (!path.endsWith('/metrics')) metrics.record(req.method, res.statusCode, ms);
       if (quiet || path.startsWith('/api/v1/health')) return;
       const user = (req as Request & { user?: { id: string } }).user?.id;

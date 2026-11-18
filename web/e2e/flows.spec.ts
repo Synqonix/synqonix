@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { api, expectAccessible, logIn, PASSWORD, seed, uniqueEmail } from "./helpers";
+import { API, api, emailedLink, expectAccessible, logIn, PASSWORD, seed, totp, uniqueEmail } from "./helpers";
 
 test.describe("critical flows", () => {
   test("register, create a workspace, sign out and back in", async ({ page }) => {
@@ -9,7 +9,10 @@ test.describe("critical flows", () => {
     await page.getByLabel("Email").fill(email);
     await page.getByLabel("Password").fill(PASSWORD);
     await page.getByRole("button", { name: "Create account" }).click();
-    await expect(page).toHaveURL(/\/dashboard/);
+    await expect(page.getByRole("heading", { name: "Check your inbox" })).toBeVisible();
+    await page.goto(await emailedLink(email, "/verify-email")); // the link verifies and signs in
+    await expect(page.getByText(/you are signed in/)).toBeVisible();
+    await page.goto("/dashboard");
 
     await page.getByLabel("Name").fill("Flow Workspace");
     await page.getByRole("button", { name: "Create workspace" }).click();
@@ -21,6 +24,88 @@ test.describe("critical flows", () => {
     await logIn(page, email);
     await page.goto("/dashboard");
     await expect(page.getByText("Flow Workspace").first()).toBeVisible();
+  });
+
+  test("a verification link opened in another browser asks for the password", async ({ page, browser }) => {
+    const email = uniqueEmail("otherdevice");
+    await page.goto("/register");
+    await page.getByLabel("Name").fill("Phone Person");
+    await page.getByLabel("Email").fill(email);
+    await page.getByLabel("Password").fill(PASSWORD);
+    await page.getByRole("button", { name: "Create account" }).click();
+    await expect(page.getByRole("heading", { name: "Check your inbox" })).toBeVisible();
+
+    // A separate browser, as if the email were opened on a phone.
+    const phone = await browser.newContext();
+    const other = await phone.newPage();
+    await other.goto(await emailedLink(email, "/verify-email"));
+    await other.getByLabel("Password").fill("set on my phone 99");
+    await other.getByRole("button", { name: "Set password and continue" }).click();
+    await expect(other.getByText(/you are signed in/)).toBeVisible();
+    await phone.close();
+    await logIn(page, email, "set on my phone 99");
+  });
+
+  test("keeps the refresh token out of page storage and renews the session with the cookie", async ({ page }) => {
+    const { email } = await seed("refresh");
+    await logIn(page, email);
+    const stored = await page.evaluate(() => JSON.parse(localStorage.getItem("sx_auth") ?? "null"));
+    expect(Object.keys(stored)).toEqual(["accessToken"]);
+
+    // Simulate an expired access token: the app must renew it through the httpOnly cookie alone.
+    await page.evaluate(() => localStorage.setItem("sx_auth", JSON.stringify({ accessToken: "expired" })));
+    const refreshed = page.waitForResponse((r) => r.url().endsWith("/auth/refresh") && r.status() === 200);
+    await page.reload();
+    expect((await (await refreshed).json()).refreshToken).toBeUndefined();
+    await expect(page).toHaveURL(/\/dashboard/);
+    await expect(page.getByRole("button", { name: "Account menu" })).toBeVisible();
+
+    // Signing out revokes the cookie's session, so it cannot be renewed again.
+    await page.getByRole("button", { name: "Account menu" }).click();
+    await page.getByRole("menuitem", { name: "Sign out" }).click();
+    await expect(page).toHaveURL(/\/login/);
+    const status = await page.evaluate(async (api) => (await fetch(`${api}/auth/refresh`, {
+      method: "POST", credentials: "include", headers: { "content-type": "application/json" }, body: "{}",
+    })).status, API);
+    expect(status).toBe(401);
+  });
+
+  test("turn on two-factor authentication and sign in with a code", async ({ page }) => {
+    const { email } = await seed("twofactor");
+    await logIn(page, email);
+    await page.goto("/settings/security");
+    await page.getByRole("button", { name: "Set up two-factor authentication" }).click();
+    await expect(page.getByRole("img", { name: "QR code for your authenticator app" })).toBeVisible();
+    const secret = (await page.locator("code").first().textContent())!.trim();
+    await page.getByLabel("Code from the app").fill(totp(secret));
+    await page.getByRole("button", { name: "Turn on" }).click();
+    await expect(page.getByRole("list", { name: "Recovery codes" }).getByRole("listitem")).toHaveCount(10);
+    await page.getByRole("button", { name: "I saved them" }).click();
+    await expect(page.getByText(/^On\. 10 recovery codes left/)).toBeVisible();
+
+    await page.getByRole("button", { name: "Account menu" }).click();
+    await page.getByRole("menuitem", { name: "Sign out" }).click();
+    await page.goto("/login");
+    await page.getByLabel("Email").fill(email);
+    await page.getByLabel("Password").fill(PASSWORD);
+    await page.getByRole("button", { name: /sign in|log in/i }).click();
+    await expect(page.getByRole("heading", { name: "Two-factor authentication" })).toBeVisible();
+    await page.getByLabel("Code").fill(totp(secret, 1)); // the setup used the current step
+    await page.getByRole("button", { name: "Verify" }).click();
+    await expect(page).toHaveURL(/\/dashboard/);
+  });
+
+  test("pages carry their own titles", async ({ page }) => {
+    await page.goto("/");
+    await expect(page).toHaveTitle("Synqonix — project management built for developers");
+    await page.goto("/login");
+    await expect(page).toHaveTitle("Sign in · Synqonix");
+    const s = await seed("titles");
+    await logIn(page, s.email);
+    await page.goto(`/w/${s.workspaceId}/tasks/${s.tasks[0].key}`);
+    await expect(page).toHaveTitle(`${s.tasks[0].key} · Synqonix`);
+    await page.goto(`/w/${s.workspaceId}/projects/${s.projectId}/backlog`);
+    await expect(page).toHaveTitle("Backlog · Synqonix");
   });
 
   test("a wrong password is refused with a message", async ({ page }) => {

@@ -6,7 +6,7 @@ import { AuditService } from '../audit/audit.service.js';
 import { WorkspaceEvents } from '../channels/events.js';
 import { randomToken } from '../common/crypto.js';
 import { slugify } from '../common/slug.js';
-import type { Membership, Workspace } from '../generated/prisma/client.js';
+import type { Membership, Prisma, Workspace } from '../generated/prisma/client.js';
 import type { WorkspaceRole } from '../generated/prisma/enums.js';
 import { isWorkspaceAdmin } from '../permissions/permissions.js';
 import { PrismaService } from '../prisma/prisma.service.js';
@@ -91,8 +91,15 @@ export class WorkspacesService {
     }));
   }
 
-  private async ownerCount(workspaceId: string) {
-    return this.prisma.membership.count({ where: { workspaceId, role: 'OWNER' } });
+  /**
+   * Runs `fn` while holding a lock on the workspace's owner rows, so two requests that each remove
+   * a different owner cannot both pass "at least one owner must remain" and leave none.
+   */
+  private async withOwnerLock<T>(workspaceId: string, fn: (tx: Prisma.TransactionClient, owners: number) => Promise<T>): Promise<T> {
+    return this.prisma.$transaction(async (tx) => {
+      const owners = await tx.$queryRaw<{ id: string }[]>`SELECT "id" FROM "Membership" WHERE "workspaceId" = ${workspaceId} AND "role" = 'OWNER' FOR UPDATE`;
+      return fn(tx, owners.length);
+    });
   }
 
   async changeRole(actor: Membership, targetUserId: string, role: WorkspaceRole): Promise<MemberDto> {
@@ -106,14 +113,19 @@ export class WorkspacesService {
     if ((role === 'OWNER' || target.role === 'OWNER') && actor.role !== 'OWNER') {
       throw new ForbiddenException('Only an owner can change owner roles');
     }
-    if (target.role === 'OWNER' && role !== 'OWNER' && (await this.ownerCount(actor.workspaceId)) <= 1) {
-      throw new BadRequestException('A workspace needs at least one owner');
-    }
-    const updated = await this.prisma.membership.update({ where: { id: target.id }, data: { role } });
+    const updated = await this.withOwnerLock(actor.workspaceId, async (tx, owners) => {
+      if (target.role === 'OWNER' && role !== 'OWNER' && owners <= 1) {
+        throw new BadRequestException('A workspace needs at least one owner');
+      }
+      return tx.membership.update({ where: { id: target.id }, data: { role } });
+    });
     await this.audit.log({
       workspaceId: actor.workspaceId, actorId: actor.userId, action: 'member.role_changed',
       entityType: 'user', entityId: targetUserId, metadata: { from: target.role, to: role },
     });
+    if (target.role !== role) {
+      await this.events.emitAsync(WorkspaceEvents.memberRoleChanged, { workspaceId: actor.workspaceId, userId: targetUserId, role });
+    }
     return {
       userId: target.userId, name: target.user.name, email: target.user.email,
       role: updated.role, joinedAt: target.createdAt,
@@ -136,17 +148,14 @@ export class WorkspacesService {
         throw new ForbiddenException('Only an owner can remove an owner');
       }
     }
-    if (target.role === 'OWNER' && (await this.ownerCount(actor.workspaceId)) <= 1) {
-      throw new BadRequestException('A workspace needs at least one owner');
-    }
-
     const { workspaceId } = actor;
-    await this.prisma.$transaction([
-      this.prisma.teamMember.deleteMany({ where: { userId: targetUserId, team: { workspaceId } } }),
-      this.prisma.projectMember.deleteMany({ where: { userId: targetUserId, project: { workspaceId } } }),
-      this.prisma.project.updateMany({ where: { workspaceId, leadId: targetUserId }, data: { leadId: null } }),
-      this.prisma.membership.delete({ where: { id: target.id } }),
-    ]);
+    await this.withOwnerLock(workspaceId, async (tx, owners) => {
+      if (target.role === 'OWNER' && owners <= 1) throw new BadRequestException('A workspace needs at least one owner');
+      await tx.teamMember.deleteMany({ where: { userId: targetUserId, team: { workspaceId } } });
+      await tx.projectMember.deleteMany({ where: { userId: targetUserId, project: { workspaceId } } });
+      await tx.project.updateMany({ where: { workspaceId, leadId: targetUserId }, data: { leadId: null } });
+      await tx.membership.delete({ where: { id: target.id } });
+    });
     await this.audit.log({
       workspaceId, actorId: actor.userId, action: leaving ? 'member.left' : 'member.removed',
       entityType: 'user', entityId: targetUserId,

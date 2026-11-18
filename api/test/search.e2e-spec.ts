@@ -187,4 +187,14 @@ describe('Search (e2e)', () => {
       await http().get(api('/search?q=a&limit=500')).set(alice.auth).expect(400);
     });
   });
+
+  it('keeps the trigram and full-text indexes that search relies on', async () => {
+    // Raw SQL indexes vanish silently when schema.prisma drifts from the database; guard them here.
+    const rows = await prisma.$queryRaw<{ indexname: string }[]>`
+      SELECT indexname FROM pg_indexes WHERE indexname LIKE '%\_trgm\_idx' OR indexname LIKE '%\_fts\_idx'`;
+    expect(rows.map((r) => r.indexname).sort()).toEqual([
+      'Channel_name_trgm_idx', 'Comment_fts_idx', 'Message_fts_idx', 'Project_name_trgm_idx',
+      'Task_fts_idx', 'Task_title_trgm_idx', 'User_name_trgm_idx',
+    ]);
+  });
 });

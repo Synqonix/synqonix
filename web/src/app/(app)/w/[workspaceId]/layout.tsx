@@ -16,14 +16,8 @@ import { useQuery } from "@/lib/use-query";
 export default function WorkspaceLayout({ children }: { children: React.ReactNode }) {
   const { workspaceId } = useParams<{ workspaceId: string }>();
 
-  const current = useQuery(
-    () => api.GET("/api/v1/workspaces/{workspaceId}", { params: { path: { workspaceId } } }),
-    [workspaceId],
-  );
-  const members = useQuery(
-    () => api.GET("/api/v1/workspaces/{workspaceId}/members", { params: { path: { workspaceId } } }),
-    [workspaceId],
-  );
+  const current = useQuery(["/api/v1/workspaces/{workspaceId}", "app/(app)/w/[workspaceId]/layout:0", workspaceId], () => api.GET("/api/v1/workspaces/{workspaceId}", { params: { path: { workspaceId } } }));
+  const members = useQuery(["/api/v1/workspaces/{workspaceId}/members", "app/(app)/w/[workspaceId]/layout:1", workspaceId], () => api.GET("/api/v1/workspaces/{workspaceId}/members", { params: { path: { workspaceId } } }));
 
   const [creating, setCreating] = useState(false);
   const [drawer, setDrawer] = useState(false);

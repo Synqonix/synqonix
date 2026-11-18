@@ -26,7 +26,6 @@ describe('Notifications (e2e)', () => {
 
   beforeAll(async () => {
     ({ app, mail, prisma } = await createTestApp());
-    await app.listen(0);
     url = `http://127.0.0.1:${(app.getHttpServer().address() as AddressInfo).port}`;
     service = app.get(NotificationsService);
     reminders = app.get(RemindersService);
@@ -331,6 +330,25 @@ describe('Notifications (e2e)', () => {
       await http().post(api(`/channels/${dm.id}/messages`)).set(alice.auth).send({ body: `psst [@Bob](mention:${bob.id})` }).expect(201);
       await until(async () => (await inbox(bob)).items.length === 2);
       expect((await inbox(bob)).items[0].title).toBe('Alice mentioned you in a direct message');
+    });
+
+    it('does not email queued notifications to someone removed from the workspace since', async () => {
+      await setPrefs(bob, { emailMode: 'DIGEST' }).expect(200);
+      await mkTask({ title: 'Confidential', assigneeIds: [bob.id] });
+      await until(async () => (await types(bob)).length === 1);
+      await prisma.membership.deleteMany({ where: { workspaceId: ws, userId: bob.id } });
+      expect(await service.flushEmails(new Date())).toBe(0);
+      expect(mail.notifications).toEqual([]);
+      expect(await prisma.notification.count({ where: { userId: bob.id, emailState: 'PENDING' } })).toBe(0);
+    });
+
+    it('hides chat mention snippets once the person can no longer read the private channel', async () => {
+      const ch = (await http().post(api('/channels')).set(alice.auth).send({ name: 'core', type: 'PRIVATE', memberIds: [bob.id] }).expect(201)).body;
+      await http().post(api(`/channels/${ch.id}/messages`)).set(alice.auth).send({ body: `launch [@Bob](mention:${bob.id}) secret` }).expect(201);
+      await until(async () => (await types(bob)).includes('CHAT_MENTION'));
+      await prisma.channelMember.delete({ where: { channelId_userId: { channelId: ch.id, userId: bob.id } } });
+      expect((await inbox(bob)).items).toEqual([]);
+      expect((await unread(bob)).count).toBe(0);
     });
 
     it('tells open tabs to refresh', async () => {

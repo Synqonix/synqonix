@@ -7,20 +7,46 @@ const schema = z.object({
   WEB_URL: z.string().url().default('http://localhost:3000'),
   JWT_ACCESS_SECRET: z.string().min(16).default('dev-access-secret-change-me'),
   JWT_REFRESH_SECRET: z.string().min(16).default('dev-refresh-secret-change-me'),
+  /** Former JWT secrets (comma separated) still accepted while rotating; tokens name their key with a `kid`. */
+  JWT_ACCESS_SECRET_PREVIOUS: z.string().optional(),
+  JWT_REFRESH_SECRET_PREVIOUS: z.string().optional(),
+  /**
+   * Redis, for running more than one API instance: shares realtime events, rate limits and the
+   * "run once" locks of scheduled jobs. Unset: all of that stays in this process (one instance).
+   */
+  REDIS_URL: z.string().url().optional(),
+  /** Prefix for every Redis key, so several deployments can share one Redis. */
+  REDIS_PREFIX: z.string().default('sqx:'),
+  /** Report unexpected errors to Sentry (or a compatible service). Unset: nothing is sent. */
+  SENTRY_DSN: z.string().url().optional(),
+  SENTRY_ENVIRONMENT: z.string().optional(),
+  /** Serve interactive API docs at /docs. Default: on outside production, off in production. */
+  SWAGGER_ENABLED: z.enum(['0', '1']).optional(),
+  /** Encrypts secrets stored in the database (webhook signing secrets). Separate from the JWT secrets so either can rotate alone. */
+  ENCRYPTION_KEY: z.string().min(32).default('dev-encryption-key-change-me-0000000000'),
+  /** Former ENCRYPTION_KEY value(s), comma separated, still accepted for decryption while rotating keys. */
+  ENCRYPTION_KEY_PREVIOUS: z.string().optional(),
   JWT_ACCESS_TTL_SECONDS: z.coerce.number().int().positive().default(900),
   REFRESH_TTL_DAYS: z.coerce.number().int().positive().default(30),
   UPLOAD_DIR: z.string().default('./uploads'),
   MAX_UPLOAD_MB: z.coerce.number().positive().default(10),
+  /** Resend API key. Required outside tests; with Dev-Remail (development) any value works. */
   RESEND_API_KEY: z.string().optional(),
+  /** Send to a Resend-compatible server instead of Resend, e.g. Dev-Remail at http://localhost:6245. Unset in production. */
+  RESEND_BASE_URL: z.string().url().optional(),
+  /** Sender; its domain must be verified in Resend (or registered in Dev-Remail). */
   MAIL_FROM: z.string().default('Synqonix <no-reply@synqonix.local>'),
-  SMTP_HOST: z.string().default('localhost'),
-  SMTP_PORT: z.coerce.number().int().default(1025),
   // GitHub App (integration is switched off while these are unset).
   GITHUB_APP_ID: z.string().optional(),
   GITHUB_APP_SLUG: z.string().optional(),
   /** PEM private key; `\n` escapes are accepted so it fits on one line. */
   GITHUB_APP_PRIVATE_KEY: z.string().optional(),
   GITHUB_WEBHOOK_SECRET: z.string().optional(),
+  /** The app's OAuth client, used to prove the person connecting an installation may use it ("Request user authorization during installation"). */
+  GITHUB_APP_CLIENT_ID: z.string().optional(),
+  GITHUB_APP_CLIENT_SECRET: z.string().optional(),
+  /** Where GitHub's web (OAuth) flow lives; only changes for GitHub Enterprise or tests. */
+  GITHUB_OAUTH_URL: z.string().url().default('https://github.com'),
   /** Let webhooks target private/loopback addresses and plain http (for local development only). */
   WEBHOOKS_ALLOW_PRIVATE_TARGETS: z.enum(['0', '1']).default('0'),
   /** Days to keep records before the nightly cleanup deletes them; 0 keeps them forever. */
@@ -67,12 +93,20 @@ export function validateEnv(config: Record<string, unknown>): Env {
     const missing = (['S3_BUCKET', 'S3_ACCESS_KEY_ID', 'S3_SECRET_ACCESS_KEY'] as const).filter((k) => !env[k]);
     if (missing.length) throw new Error(`Invalid environment: STORAGE_DRIVER=s3 needs ${missing.join(', ')}`);
   }
+  if (env.NODE_ENV !== 'test' && !env.RESEND_API_KEY) {
+    throw new Error('Invalid environment: RESEND_API_KEY is required to send email (in development use Dev-Remail: RESEND_API_KEY=re_dev and RESEND_BASE_URL=http://localhost:6245)');
+  }
   if (env.NODE_ENV === 'production') {
     const problems: string[] = [];
     for (const key of ['JWT_ACCESS_SECRET', 'JWT_REFRESH_SECRET'] as const) {
       if (!(key in cleaned) || /change-me/.test(env[key])) problems.push(`${key} must be set to a private value`);
+      else if (env[key].length < 32) problems.push(`${key} must be at least 32 characters (openssl rand -base64 48)`);
     }
     if (env.JWT_ACCESS_SECRET === env.JWT_REFRESH_SECRET) problems.push('the two JWT secrets must differ');
+    if (!('ENCRYPTION_KEY' in cleaned) || /change-me/.test(env.ENCRYPTION_KEY)) problems.push('ENCRYPTION_KEY must be set to a private value');
+    else if (env.ENCRYPTION_KEY === env.JWT_ACCESS_SECRET || env.ENCRYPTION_KEY === env.JWT_REFRESH_SECRET) {
+      problems.push('ENCRYPTION_KEY must differ from the JWT secrets');
+    }
     if (/localhost|127\.0\.0\.1/.test(env.WEB_URL)) problems.push('WEB_URL must be the public address of the web app');
     if (problems.length) throw new Error(`Invalid production environment: ${problems.join('; ')}`);
   }

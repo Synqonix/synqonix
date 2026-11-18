@@ -23,7 +23,7 @@ const ACTIONS: { value: Action["type"]; label: string }[] = [
 export function AutomationCard({ project }: { project: Project }) {
   const { members } = useWorkspace();
   const path = { workspaceId: project.workspaceId, projectId: project.id };
-  const rules = useQuery(() => api.GET("/api/v1/workspaces/{workspaceId}/projects/{projectId}/automations", { params: { path } }), [project.id]);
+  const rules = useQuery(["/api/v1/workspaces/{workspaceId}/projects/{projectId}/automations", "components/automation/automation-card:0", project.id], () => api.GET("/api/v1/workspaces/{workspaceId}/projects/{projectId}/automations", { params: { path } }));
   const [adding, setAdding] = useState(false);
   const [trigger, setTrigger] = useState<"TASK_CREATED" | "STATUS_CHANGED">("TASK_CREATED");
   const [actions, setActions] = useState<Action[]>([{ type: "SET_PRIORITY", value: "HIGH" }]);

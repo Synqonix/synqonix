@@ -5,13 +5,14 @@ import { ApiBearerAuth, ApiCreatedResponse, ApiOkResponse, ApiParam, ApiTags } f
 import type { Membership } from '../generated/prisma/client.js';
 import { CurrentMembership, RequirePermission, WorkspaceGuard } from '../permissions/workspace.guard.js';
 import {
-  BoardDto, BoardQueryDto, BulkResultDto, BulkUpdateTasksDto, CreateTaskDto, ListTasksQueryDto, MoveTaskDto,
-  RankTaskDto, RecentTasksQueryDto, TaskDetailDto, TaskDto, TaskListDto, UpdateTaskDto,
+  BoardQueryDto, BulkUpdateTasksDto, CreateTaskDto, ListTasksQueryDto, MoveTaskDto, RankTaskDto, RecentTasksQueryDto, UpdateTaskDto,
 } from './dto/task.dto.js';
+import { BoardDto, BulkResultDto, TaskDetailDto, TaskDto, TaskListDto } from './dto/task-response.dto.js';
 import { BacklogRankDto } from '../agile/dto/agile.dto.js';
 import { TaskMoveService } from './task-move.service.js';
 import { RecentTasksService } from './recent-tasks.service.js';
 import { TaskRankService } from './task-rank.service.js';
+import { TaskQueryService } from './task-query.service.js';
 import { TasksService } from './tasks.service.js';
 
 /**
@@ -26,6 +27,7 @@ import { TasksService } from './tasks.service.js';
 export class TasksController {
   constructor(
     private readonly tasks: TasksService,
+    private readonly query: TaskQueryService,
     private readonly moves: TaskMoveService,
     private readonly ranks: TaskRankService,
     private readonly recent: RecentTasksService,
@@ -41,14 +43,14 @@ export class TasksController {
   @Get('tasks') @RequirePermission('task.read')
   @ApiOkResponse({ type: TaskListDto })
   list(@CurrentMembership() m: Membership, @Query() q: ListTasksQueryDto) {
-    return this.tasks.list(m, q);
+    return this.query.list(m, q);
   }
 
   /** Kanban board of a project: columns in workflow order, cards in rank order. */
   @Get('projects/:projectId/board') @RequirePermission('task.read')
   @ApiOkResponse({ type: BoardDto })
   board(@CurrentMembership() m: Membership, @Param('projectId') projectId: string, @Query() q: BoardQueryDto) {
-    return this.tasks.board(m, projectId, q);
+    return this.query.board(m, projectId, q);
   }
 
   /** Tasks the caller opened recently, newest first. */

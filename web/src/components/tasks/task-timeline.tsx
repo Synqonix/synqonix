@@ -20,8 +20,8 @@ export function Timeline({ task, ws, canManage, version }: { task: TaskDetail; w
   const { members, memberName } = useWorkspace();
   const { user } = useAuth();
   const path = { workspaceId: ws, taskId: task.id };
-  const comments = useQuery(() => api.GET("/api/v1/workspaces/{workspaceId}/tasks/{taskId}/comments", { params: { path } }), [task.id, version]);
-  const activity = useQuery(() => api.GET("/api/v1/workspaces/{workspaceId}/tasks/{taskId}/activity", { params: { path, query: { limit: 100 } } }), [task.id, version]);
+  const comments = useQuery(["/api/v1/workspaces/{workspaceId}/tasks/{taskId}/comments", "components/tasks/task-timeline:0", task.id, version], () => api.GET("/api/v1/workspaces/{workspaceId}/tasks/{taskId}/comments", { params: { path } }));
+  const activity = useQuery(["/api/v1/workspaces/{workspaceId}/tasks/{taskId}/activity", "components/tasks/task-timeline:1", task.id, version], () => api.GET("/api/v1/workspaces/{workspaceId}/tasks/{taskId}/activity", { params: { path, query: { limit: 100 } } }));
   const [draft, setDraft] = useState("");
   const [editing, setEditing] = useState<{ id: string; body: string } | null>(null);
   const [error, setError] = useState<string | null>(null);

@@ -20,7 +20,13 @@ export interface AuthUser {
   /** Present when authenticated with a login session JWT. */
   sessionId?: string;
   via: 'jwt' | 'api-token';
+  /** API tokens only: what the token may do (`read` = GET requests only). */
+  scopes?: ApiTokenScope[];
+  /** API tokens only: the one workspace the token is limited to. */
+  tokenWorkspaceId?: string;
 }
+
+export type ApiTokenScope = 'read' | 'write';
 
 export type AuthedRequest = Request & { user: AuthUser };
 

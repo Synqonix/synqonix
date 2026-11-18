@@ -1,32 +1,18 @@
-import {
-  BadRequestException, ConflictException, ForbiddenException, Injectable, Logger, NotFoundException, PayloadTooLargeException,
-} from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
+import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
-import { Cron, CronExpression } from '@nestjs/schedule';
-import { randomUUID } from 'node:crypto';
-import type { Env } from '../config/env.js';
 import type { Channel, Membership, Prisma } from '../generated/prisma/client.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { ProjectAccessService } from '../projects/project-access.service.js';
-import { safeFilename } from '../tasks/attachments.service.js';
-import type { TaskRefDto } from '../tasks/dto/task.dto.js';
+import type { TaskRefDto } from '../tasks/dto/task-response.dto.js';
 import { extractMentionedUserIds } from '../tasks/mentions.js';
-import { SignedTokens } from '../storage/signed-token.js';
-import { DownloadUrlDto, RequestUploadDto, UploadTargetDto } from '../storage/storage.dto.js';
 import { StorageService } from '../storage/storage.service.js';
 import { TaskAccessService } from '../tasks/task-access.service.js';
 import { refInclude, toRefDto } from '../tasks/task-mapper.js';
 import { parseTaskRef } from '../tasks/task-ref.js';
 import { TasksService } from '../tasks/tasks.service.js';
 import { ChannelAccessService, type ChannelAccess } from './channel-access.service.js';
-import type {
-  CreateTaskFromMessageDto, DiscussionDto, ListMessagesQueryDto, MessageAttachmentDto, MessageDto, MessageListDto,
-  PostMessageDto, RepliesQueryDto,
-} from './dto/channels.dto.js';
-import {
-  ChatEvents, type ChatMentionedEvent, type ChatMessageEvent, type ChatMemberEvent, type ChatReadEvent,
-} from './events.js';
+import type { CreateTaskFromMessageDto, DiscussionDto, ListMessagesQueryDto, MessageAttachmentDto, MessageDto, MessageListDto, PostMessageDto, RepliesQueryDto } from './dto/channels.dto.js';
+import { ChatEvents, type ChatMentionedEvent, type ChatMessageEvent, type ChatMemberEvent, type ChatReadEvent } from './events.js';
 import { extractTaskKeys, isReactionEmoji, titleFromMessage } from './task-keys.js';
 
 const MAX_REACTIONS_PER_MESSAGE = 20;
@@ -39,10 +25,11 @@ const messageInclude = {
 } satisfies Prisma.MessageInclude;
 type MessageRow = Prisma.MessageGetPayload<{ include: typeof messageInclude }>;
 
+/** Whether the text contains this task key as a whole word (as typed in the message). */
+const mentionsKey = (body: string, key: string) => new RegExp(`(^|[^A-Za-z0-9-])${key.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?![A-Za-z0-9-])`, 'i').test(body);
+
 @Injectable()
 export class MessagesService {
-  private readonly logger = new Logger(MessagesService.name);
-
   constructor(
     private readonly prisma: PrismaService,
     private readonly access: ChannelAccessService,
@@ -50,9 +37,7 @@ export class MessagesService {
     private readonly taskAccess: TaskAccessService,
     private readonly tasks: TasksService,
     private readonly storage: StorageService,
-    private readonly tokens: SignedTokens,
     private readonly events: EventEmitter2,
-    private readonly config: ConfigService<Env, true>,
   ) {}
 
   // ---------------------------------------------------------------- building DTOs
@@ -96,7 +81,14 @@ export class MessagesService {
           emoji, count: userIds.length, userIds, reacted: viewer ? userIds.includes(viewer.userId) : false,
         })),
         attachments: deleted ? [] : r.attachments.map((a): MessageAttachmentDto => ({ id: a.id, filename: a.filename, mimeType: a.mimeType, size: a.size })),
-        taskKeys: deleted ? [] : r.taskLinks.filter((l) => l.source === 'MENTION').map((l) => taskKeysById.get(l.taskId)).filter((k): k is string => !!k),
+        taskKeys: deleted ? [] : r.taskLinks.filter((l) => l.source === 'MENTION').map((l) => {
+          // A task that moved to a project the viewer cannot see must not leak its new key: without a
+          // visible card, only a key the message itself already spells out is returned.
+          const card = cards.get(l.taskId);
+          if (card) return card.key;
+          const live = taskKeysById.get(l.taskId);
+          return live && mentionsKey(r.body, live) ? live : undefined;
+        }).filter((k): k is string => !!k),
         tasks: deleted ? [] : r.taskLinks.map((l) => cards.get(l.taskId)).filter((c): c is TaskRefDto => !!c),
       };
     });
@@ -334,7 +326,7 @@ export class MessagesService {
       where: { channelId, userId: m.userId, lastReadSeq: { lt: target } }, data: { lastReadSeq: target },
     });
     const fresh = await this.prisma.channelMember.findUniqueOrThrow({ where: { channelId_userId: { channelId, userId: m.userId } } });
-    const e: ChatReadEvent = { userId: m.userId, channelId, seq: fresh.lastReadSeq };
+    const e: ChatReadEvent = { workspaceId: m.workspaceId, userId: m.userId, channelId, seq: fresh.lastReadSeq };
     this.events.emit(ChatEvents.read, e);
     return { lastReadSeq: fresh.lastReadSeq };
   }
@@ -390,59 +382,5 @@ export class MessagesService {
     });
     const dtos = await this.build(links.map((l) => l.message), m);
     return links.map((l, i) => ({ message: dtos[i], channel: l.message.channel, source: l.source }));
-  }
-
-  // ---------------------------------------------------------------- files
-
-  async requestUpload(m: Membership, channelId: string, dto: RequestUploadDto): Promise<UploadTargetDto> {
-    await this.access.loadForPosting(m, channelId);
-    const maxMb = this.config.get('MAX_UPLOAD_MB');
-    if (dto.size > maxMb * 1024 * 1024) throw new PayloadTooLargeException(`Files can be at most ${maxMb} MB`);
-    const filename = safeFilename(dto.filename);
-    const key = `${m.workspaceId}/chat/${channelId}/${randomUUID()}`;
-    const target = await this.storage.presignUpload(key, dto.size);
-    const mimeType = dto.mimeType?.trim() || 'application/octet-stream';
-    const uploadToken = this.tokens.sign({ kind: 'chat', key, filename, mimeType, size: dto.size, channel: channelId, user: m.userId }, 15 * 60);
-    return { uploadUrl: target.url, method: target.method, headers: target.headers, expiresAt: target.expiresAt, uploadToken };
-  }
-
-  async confirmUpload(m: Membership, channelId: string, uploadToken: string): Promise<MessageAttachmentDto> {
-    await this.access.loadForPosting(m, channelId);
-    const c = this.tokens.verify<{ kind: string; key: string; filename: string; mimeType: string; size: number; channel: string; user: string }>(uploadToken);
-    if (c.kind !== 'chat' || c.channel !== channelId || c.user !== m.userId) throw new BadRequestException('This upload does not belong to this channel');
-    const toDto = (a: { id: string; filename: string; mimeType: string; size: number }): MessageAttachmentDto => ({ id: a.id, filename: a.filename, mimeType: a.mimeType, size: a.size });
-    const existing = await this.prisma.messageAttachment.findFirst({ where: { storageKey: c.key } });
-    if (existing) return toDto(existing);
-    const stored = await this.storage.head(c.key);
-    if (!stored) throw new BadRequestException('The file was not uploaded');
-    if (stored.size !== c.size) {
-      await this.storage.delete(c.key).catch(() => undefined);
-      throw new BadRequestException('The uploaded file does not match the size that was announced');
-    }
-    const a = await this.prisma.messageAttachment.create({
-      data: { channelId, uploaderId: m.userId, filename: c.filename, storageKey: c.key, mimeType: c.mimeType, size: c.size },
-    });
-    return toDto(a);
-  }
-
-  async downloadUrl(m: Membership, channelId: string, attachmentId: string): Promise<DownloadUrlDto> {
-    await this.access.load(m, channelId);
-    const a = await this.prisma.messageAttachment.findFirst({ where: { id: attachmentId, channelId } });
-    // A file that has not been sent yet is only visible to the person who uploaded it.
-    if (!a || (!a.messageId && a.uploaderId !== m.userId)) throw new NotFoundException('Attachment not found');
-    return this.storage.presignDownload(a.storageKey, a.filename);
-  }
-
-  /** Files uploaded but never sent are removed after a day. */
-  @Cron(CronExpression.EVERY_HOUR)
-  async purgePendingUploads() {
-    const stale = await this.prisma.messageAttachment.findMany({
-      where: { messageId: null, createdAt: { lt: new Date(Date.now() - 24 * 3600 * 1000) } }, take: 500,
-    });
-    for (const a of stale) {
-      await this.storage.delete(a.storageKey).catch(() => undefined);
-      await this.prisma.messageAttachment.delete({ where: { id: a.id } }).catch(() => undefined);
-    }
-    if (stale.length > 0) this.logger.log(`Removed ${stale.length} unsent chat uploads`);
   }
 }

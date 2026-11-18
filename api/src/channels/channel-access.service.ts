@@ -36,6 +36,46 @@ export class ChannelAccessService {
     };
   }
 
+  /**
+   * Of the given channels, the ones this user may currently see. Joining a realtime room because
+   * the user follows a channel is not enough: follows can outlive a demotion or a removal.
+   */
+  async visibleChannelIds(userId: string, channelIds: string[], onlyWorkspaceId?: string): Promise<string[]> {
+    if (channelIds.length === 0) return [];
+    const memberships = await this.prisma.membership.findMany({ where: { userId, ...(onlyWorkspaceId && { workspaceId: onlyWorkspaceId }) } });
+    const visible = await Promise.all(
+      memberships.map((m) =>
+        this.prisma.channel.findMany({ where: { AND: [this.visibleWhere(m), { id: { in: channelIds } }] }, select: { id: true } }),
+      ),
+    );
+    return visible.flat().map((c) => c.id);
+  }
+
+  /** Drops the user's follows of project channels they can no longer see in this workspace. */
+  async pruneMemberships(userId: string, workspaceId: string) {
+    const m = await this.prisma.membership.findUnique({ where: { workspaceId_userId: { workspaceId, userId } } });
+    const hidden = m
+      ? { workspaceId, members: { some: { userId } }, NOT: this.visibleWhere(m) }
+      : { workspaceId, members: { some: { userId } } };
+    const channels = await this.prisma.channel.findMany({ where: hidden, select: { id: true } });
+    if (channels.length === 0) return;
+    await this.prisma.channelMember.deleteMany({ where: { userId, channelId: { in: channels.map((c) => c.id) } } });
+  }
+
+  /** After a project's visibility or lead changes: drops follows of its channels by people who can no longer see it. */
+  async pruneProjectChannelMembers(projectId: string) {
+    const rows = await this.prisma.channelMember.findMany({
+      where: { channel: { projectId } }, select: { userId: true, channel: { select: { workspaceId: true } } },
+    });
+    const seen = new Set<string>();
+    for (const r of rows) {
+      const key = `${r.channel.workspaceId}:${r.userId}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      await this.pruneMemberships(r.userId, r.channel.workspaceId);
+    }
+  }
+
   async load(m: Membership, channelId: string): Promise<ChannelAccess> {
     const channel = await this.prisma.channel.findFirst({
       where: { AND: [this.visibleWhere(m), { id: channelId }] },

@@ -2,7 +2,7 @@ import { Body, Controller, Delete, Get, HttpCode, Param, Patch, Post, UseGuards 
 import { ApiBearerAuth, ApiCreatedResponse, ApiOkResponse, ApiParam, ApiTags } from '@nestjs/swagger';
 import type { Membership } from '../generated/prisma/client.js';
 import { CurrentMembership, RequirePermission, WorkspaceGuard } from '../permissions/workspace.guard.js';
-import { TaskDetailDto } from '../tasks/dto/task.dto.js';
+import { TaskDetailDto } from '../tasks/dto/task-response.dto.js';
 import {
   CreateFromTemplateDto, CreateRecurringDto, CreateTemplateDto, RecurringDto, SaveAsTemplateDto, TemplateDto, UpdateRecurringDto, UpdateTemplateDto,
 } from './dto/templates.dto.js';

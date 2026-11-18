@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import type { Prisma } from '../generated/prisma/client.js';
 import { PrismaService } from '../prisma/prisma.service.js';
-import type { ActivityDto } from './dto/task.dto.js';
+import type { ActivityDto } from './dto/task-response.dto.js';
 
 export interface ActivityEntry {
   type: string;

@@ -1,7 +1,7 @@
 import { Transform } from 'class-transformer';
 import { IsInt, IsOptional, IsString, Max, MaxLength, Min } from 'class-validator';
 import { ChannelType, TaskType } from '../../generated/prisma/enums.js';
-import { TaskStatusDto } from '../../tasks/dto/task.dto.js';
+import { TaskStatusDto } from '../../tasks/dto/task-response.dto.js';
 
 const toInt = ({ value }: { value: unknown }) => (value === undefined || value === '' ? undefined : Number(value));
 

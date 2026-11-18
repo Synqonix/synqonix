@@ -21,7 +21,6 @@ describe('Chat realtime (e2e)', () => {
 
   beforeAll(async () => {
     ({ app, mail, prisma } = await createTestApp());
-    await app.listen(0);
     url = `http://127.0.0.1:${(app.getHttpServer().address() as AddressInfo).port}`;
   });
   afterAll(() => app.close());
@@ -176,12 +175,12 @@ describe('Chat realtime (e2e)', () => {
     const second = await ack<{ ok: boolean; online: string[] }>(b.s, 'presence:subscribe', { workspaceId: ws });
     expect(second.online.sort()).toEqual([alice.id, bob.id].sort());
     expect(await waitFor(a.presence, (p) => p.userId === bob.id)).toEqual({ workspaceId: ws, userId: bob.id, online: true });
-    // a second tab does not announce again, and closing one tab keeps them online
+    // a second tab may announce again (clients keep a set), and closing one tab keeps them online
     const b2 = await connect(bob);
     await ack(b2.s, 'presence:subscribe', { workspaceId: ws });
     b2.s.disconnect();
     await quiet();
-    expect(a.presence.filter((p) => p.userId === bob.id)).toHaveLength(1);
+    expect(a.presence.filter((p) => p.userId === bob.id && !p.online)).toEqual([]);
     b.s.disconnect();
     expect(await waitFor(a.presence, (p) => p.userId === bob.id && !p.online)).toBeTruthy();
     // not a member of this workspace

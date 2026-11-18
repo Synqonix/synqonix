@@ -71,6 +71,28 @@ describe('Workspaces, members & invitations (e2e)', () => {
       .send({ email: bob.email, role: 'ADMIN' }).expect(409);
   });
 
+  it('never lets concurrent requests remove the last owners', async () => {
+    await addMember(bob, 'OWNER');
+    // Each owner demotes the other at the same moment: exactly one may win.
+    const results = await Promise.all([
+      http().patch(api(`/workspaces/${wsId}/members/${bob.id}`)).set(alice.auth).send({ role: 'MEMBER' }),
+      http().patch(api(`/workspaces/${wsId}/members/${alice.id}`)).set(bob.auth).send({ role: 'MEMBER' }),
+    ]);
+    expect(results.map((r) => r.status).sort()).toEqual([200, 400]);
+    expect(await prisma.membership.count({ where: { workspaceId: wsId, role: 'OWNER' } })).toBe(1);
+  });
+
+  it('does not let an admin resend an owner invitation', async () => {
+    await addMember(bob, 'ADMIN');
+    const dave = await signUp(app, 'Dave');
+    await http().post(api(`/workspaces/${wsId}/invitations`)).set(alice.auth).send({ email: dave.email, role: 'OWNER' }).expect(201);
+    const pending = (await http().get(api(`/workspaces/${wsId}/invitations`)).set(alice.auth).expect(200)).body;
+    const before = mail.inviteTokenFor(dave.email);
+    await http().post(api(`/workspaces/${wsId}/invitations/${pending[0].id}/resend`)).set(bob.auth).expect(403);
+    expect(mail.inviteTokenFor(dave.email)).toBe(before); // nothing was reissued
+    await http().post(api(`/workspaces/${wsId}/invitations/${pending[0].id}/resend`)).set(alice.auth).expect(201);
+  });
+
   it('supports listing, resending, revoking and declining', async () => {
     await http().post(api(`/workspaces/${wsId}/invitations`)).set(alice.auth).send({ email: bob.email, role: 'VIEWER' }).expect(201);
     const first = mail.inviteTokenFor(bob.email)!;

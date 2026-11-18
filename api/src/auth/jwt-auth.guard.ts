@@ -6,7 +6,7 @@ import {
   UnauthorizedException,
 } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
-import { AuthedRequest, IS_PUBLIC, REQUIRES_SESSION } from '../common/decorators.js';
+import { AuthedRequest, type AuthUser, IS_PUBLIC, REQUIRES_SESSION } from '../common/decorators.js';
 import { AuthTokenService } from './auth-token.service.js';
 
 export { API_TOKEN_PREFIX } from './auth-token.service.js';
@@ -32,12 +32,33 @@ export class JwtAuthGuard implements CanActivate {
 
     req.user = await this.tokens.authenticate(token);
 
-    if (
-      req.user.via === 'api-token' &&
-      this.reflector.getAllAndOverride<boolean>(REQUIRES_SESSION, targets)
-    ) {
-      throw new ForbiddenException('This action requires a signed-in session');
+    if (req.user.via === 'api-token') {
+      if (this.reflector.getAllAndOverride<boolean>(REQUIRES_SESSION, targets)) {
+        throw new ForbiddenException('This action requires a signed-in session');
+      }
+      const workspaceId = req.params?.workspaceId;
+      checkTokenLimits(req.user, req.method, typeof workspaceId === 'string' ? workspaceId : undefined, req.path);
     }
     return true;
   }
+}
+
+const READ_METHODS = new Set(['GET', 'HEAD', 'OPTIONS']);
+/** Routes outside a workspace that a workspace-bound token may still read (their results are filtered to it). */
+const BOUND_TOKEN_ROUTES = new Set(['/api/v1/users/me', '/api/v1/workspaces']);
+/** The notification inbox: its controller keeps a bound token inside the token's workspace. */
+const BOUND_TOKEN_PREFIX = '/api/v1/notifications';
+
+/** Enforces an API token's scopes and workspace binding. Exported for tests. */
+export function checkTokenLimits(user: AuthUser, method: string, workspaceId: string | undefined, path: string) {
+  if (!READ_METHODS.has(method.toUpperCase()) && !user.scopes?.includes('write')) {
+    throw new ForbiddenException('This API token is read-only');
+  }
+  if (!user.tokenWorkspaceId) return;
+  const route = path.replace(/\/$/, '');
+  const allowed = workspaceId !== undefined
+    ? workspaceId === user.tokenWorkspaceId
+    : (READ_METHODS.has(method.toUpperCase()) && BOUND_TOKEN_ROUTES.has(route)) ||
+      route === BOUND_TOKEN_PREFIX || route.startsWith(`${BOUND_TOKEN_PREFIX}/`);
+  if (!allowed) throw new ForbiddenException('This API token only works in its own workspace');
 }

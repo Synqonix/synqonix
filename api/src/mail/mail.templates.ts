@@ -23,6 +23,16 @@ export const resetPasswordTemplate = (name: string, url: string) => ({
   ...layout('Reset your password', `Hi ${esc(name)}, we received a request to reset your password. The link expires in 1 hour. If this was not you, ignore this email.`, { label: 'Reset password', url }),
 });
 
+export const accountExistsTemplate = (name: string, url: string) => ({
+  subject: 'You already have a Synqonix account',
+  ...layout('You already have an account', `Hi ${esc(name)}, someone (hopefully you) tried to create a Synqonix account with this email address, which already has one. Sign in instead, or reset your password if you forgot it. If this was not you, you can ignore this email.`, { label: 'Sign in', url }),
+});
+
+export const newSignInTemplate = (name: string, device: string, ip: string, url: string) => ({
+  subject: 'New sign-in to your Synqonix account',
+  ...layout('New sign-in', `Hi ${esc(name)}, your account was just signed in from a new device: ${esc(device)}${ip ? ` (IP ${esc(ip)})` : ''}. If this was you, there is nothing to do. If not, change your password and sign out the session under Security settings right away.`, { label: 'Review sessions', url }),
+});
+
 export const inviteTemplate = (inviter: string, workspace: string, url: string) => ({
   subject: `${inviter} invited you to ${workspace} on Synqonix`,
   ...layout(`Join ${esc(workspace)}`, `${esc(inviter)} invited you to collaborate on Synqonix.`, { label: 'Accept invitation', url }),

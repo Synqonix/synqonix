@@ -4,18 +4,18 @@ Part 1 sets up the stack. Part 2 runs the automated suites. Part 3 is a manual c
 
 ## 1. Setup
 
-Prerequisites: Node 22, npm, Docker (for Postgres 17.9 and Mailpit), git, and VS Code 1.90+ for the extension.
+Prerequisites: Node 22, npm, Docker (for Postgres 17.9 and Dev-Remail), git, and VS Code 1.90+ for the extension.
 
 ```bash
 # from the repo root
-docker compose -f docker-compose.dev.yml up -d   # Postgres :5432, Mailpit :1025 (SMTP) / :8025 (inbox UI)
+docker compose -f docker-compose.dev.yml up -d   # Postgres :5432, Dev-Remail :6245 (Resend-compatible API and mailbox UI)
 
 cd api
 cp .env.example .env                      # defaults work locally
 npm ci
 npx prisma migrate deploy
 THROTTLE_DISABLED=1 npm run start:dev     # API on http://localhost:4000 (docs at /docs)
-# THROTTLE_DISABLED only stops rate limits from getting in the way of testing; leave it off for the rate-limit check in 3.1
+# THROTTLE_DISABLED only stops rate limits from getting in the way of testing (ignored when NODE_ENV=production); leave it off for the rate-limit check in 3.1
 
 cd ../web
 npm ci
@@ -48,9 +48,15 @@ Run each app's checks. All should pass with no failures.
 ## 3. Manual checklist
 
 ### 3.1 Auth and account
-- [ ] Register a new user. The "verify your email" banner appears. Open Mailpit (http://localhost:8025), click the verification link; the banner goes away.
+- [ ] Register a new user: the page says "Check your inbox" and you are not signed in. Open Dev-Remail (http://localhost:6245, API activity) and click the link: you land signed in.
+- [ ] Register again with the same email: the page answers exactly the same, and Dev-Remail shows a "You already have a Synqonix account" email instead.
+- [ ] Sign in to an account whose link was never used: you are told to verify first, and no email is sent (register again for a new link).
+- [ ] Register in one browser and open the emailed link in another (or a private window): it asks for a password; after setting it you are signed in, and only that password works.
+- [ ] Sign in from a second browser: Dev-Remail shows a "New sign-in" email. Signing in again from that browser sends none.
+- [ ] 10 wrong passwords for one email: the 11th attempt (even with the right password) says to try again later; a password reset lifts it.
+- [ ] Settings, Security: turn on two-factor authentication (scan the QR code, enter a code), save the recovery codes. Sign out and in: a code is asked for; a recovery code works once. Turn it off with password and code.
 - [ ] Sign out, sign in with a wrong password: an error shows and you stay on the login page.
-- [ ] "Forgot password": the reset email arrives in Mailpit; the link lets you set a new password; the old password no longer works.
+- [ ] "Forgot password": the reset email arrives in Dev-Remail; the link lets you set a new password; the old password no longer works.
 - [ ] Change password under Settings, Security: your other browser sessions are signed out.
 - [ ] Create an API token under Security; it is shown once. `curl -H "Authorization: Bearer sqx_…" localhost:4000/api/v1/users/me` returns you. Revoke it and the same call returns 401.
 - [ ] Rate limit (start the API **without** `THROTTLE_DISABLED`): about 10 quick wrong logins return 429.

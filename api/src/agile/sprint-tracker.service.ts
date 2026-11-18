@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { OnEvent } from '@nestjs/event-emitter';
 import { Cron, CronExpression } from '@nestjs/schedule';
+import { HOLD, RunOnce } from '../redis/job-lock.js';
 import type { SnapshotReason } from '../generated/prisma/enums.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { TaskEvents } from '../tasks/events.js';
@@ -54,6 +55,7 @@ export class SprintTracker {
   }
 
   @Cron(CronExpression.EVERY_HOUR)
+  @RunOnce('sprint-snapshots', HOLD.hour)
   async recordDailySnapshots() {
     const active = await this.prisma.sprint.findMany({ where: { state: 'ACTIVE' }, select: { id: true } });
     for (const s of active) await this.ensureDaily(s.id);

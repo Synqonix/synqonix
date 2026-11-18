@@ -5,7 +5,7 @@ import type { Env } from '../config/env.js';
 import type { Membership } from '../generated/prisma/client.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { ActivityService } from './activity.service.js';
-import type { AttachmentDto } from './dto/task.dto.js';
+import type { AttachmentDto } from './dto/task-response.dto.js';
 import { SignedTokens } from '../storage/signed-token.js';
 import { DownloadUrlDto, RequestUploadDto, UploadTargetDto } from '../storage/storage.dto.js';
 import { StorageService } from '../storage/storage.service.js';

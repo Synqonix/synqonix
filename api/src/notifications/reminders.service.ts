@@ -1,5 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
+import { HOLD, RunOnce } from '../redis/job-lock.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { NotificationsService } from './notifications.service.js';
 
@@ -40,6 +41,7 @@ export class RemindersService {
   }
 
   @Cron(CronExpression.EVERY_HOUR)
+  @RunOnce('reminders-hourly', HOLD.hour)
   async hourly() {
     try {
       const n = await this.remindDue();
@@ -50,6 +52,7 @@ export class RemindersService {
   }
 
   @Cron(CronExpression.EVERY_MINUTE)
+  @RunOnce('reminders-minutely', HOLD.minute)
   async minutely() {
     try {
       await this.notifications.wakeSnoozed();

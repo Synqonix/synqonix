@@ -6,14 +6,14 @@ Optional. Without the variables below the integration is inactive and the UI say
 
 1. GitHub → *Settings → Developer settings → GitHub Apps → New GitHub App*.
 2. **Webhook URL:** `https://<your-api>/api/v1/github/webhooks`. Set a webhook secret.
-3. **Setup URL:** `https://<your-api>/api/v1/github/setup` (tick "Redirect on update").
+3. **Setup URL:** `https://<your-api>/api/v1/github/setup` (tick "Redirect on update") and tick **Request user authorization (OAuth) during installation**. This is required: it is how the API confirms that the person connecting an installation administers it (owns the personal account, or is an owner of the organization), since connecting hands the whole installation to the workspace. Give the app the organization permission **Members: read** so organization ownership can be checked; without it, organization installs are refused. Without it a connection is refused. (Leave the OAuth *Callback URL* as the same setup URL, or any URL you control.)
 4. **Permissions:** Contents (read & write), Pull requests (read), Issues (read & write), Checks (read), Metadata (read).
 5. **Subscribe to events:** push, pull_request, pull_request_review, check_run, issues, installation, installation_repositories.
-6. Generate a private key and set on the API: `GITHUB_APP_ID`, `GITHUB_APP_SLUG`, `GITHUB_APP_PRIVATE_KEY` (PEM; `\n` escapes are accepted so it fits on one line), `GITHUB_WEBHOOK_SECRET`.
+6. Generate a private key and set on the API: `GITHUB_APP_ID`, `GITHUB_APP_SLUG`, `GITHUB_APP_PRIVATE_KEY` (PEM; `\n` escapes are accepted so it fits on one line), `GITHUB_WEBHOOK_SECRET`, plus the app's OAuth client: `GITHUB_APP_CLIENT_ID`, `GITHUB_APP_CLIENT_SECRET`.
 
 ## Using it
 
-A workspace admin connects a GitHub account from workspace settings (the install redirect carries a signed 15-minute state). A project admin then links repositories from that installation to a project.
+A workspace admin connects a GitHub account from workspace settings (the install redirect carries a random single-use 15-minute state, and GitHub's own authorization of the person connecting is checked against the installation). A project admin then links repositories from that installation to a project.
 
 - Branches, commits and pull requests that mention a task key (`SYN-123`) appear on the task; PR and CI state is shown with it.
 - A project can map "PR opened" and "PR merged" to statuses, so merging moves the task.

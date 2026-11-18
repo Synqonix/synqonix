@@ -304,6 +304,20 @@ describe('Channels and messages (e2e)', () => {
       await http().post(api(`/channels/${ch.id}/messages/${m.id}/tasks`)).set(bob.auth).send({ taskRef: secret.key }).expect(404);
     });
 
+    it('does not reveal the new key of a task that moved to a private project', async () => {
+      const hidden = await mkProject(alice, 'SEC', { visibility: 'PRIVATE' });
+      const ch = await mkChannel(alice, { name: 'gen', type: 'PUBLIC' });
+      const posted = (await post(alice, ch.id, { body: `looking at ${task.key}` }).expect(201)).body;
+      expect(posted.taskKeys).toEqual([task.key]);
+      const moved = (await http().post(api(`/tasks/${task.key}/move`)).set(alice.auth).send({ projectId: hidden.id }).expect(200)).body;
+      expect(moved.key).toMatch(/^SEC-/);
+      const asBob = (await http().get(api(`/channels/${ch.id}/messages`)).set(bob.auth).expect(200)).body.messages[0];
+      expect(JSON.stringify(asBob)).not.toContain(moved.key);
+      expect(asBob.taskKeys).toEqual([]); // the live key is not in the message text, so nothing is returned
+      const asAlice = (await http().get(api(`/channels/${ch.id}/messages`)).set(alice.auth).expect(200)).body.messages[0];
+      expect(asAlice.taskKeys).toEqual([moved.key]); // someone who can see it still follows the move
+    });
+
     it('links a message to a task and lists it under the task discussions', async () => {
       const ch = await mkChannel(alice, { name: 'dev', type: 'PUBLIC' });
       const priv = await mkChannel(bob, { name: 'bobs', type: 'PRIVATE' });

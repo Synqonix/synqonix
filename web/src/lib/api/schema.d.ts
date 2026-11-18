@@ -45,6 +45,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
+        /** Readiness: the database (and Redis, when configured) answers. */
         get: operations["HealthController_ready_v1"];
         put?: never;
         post?: never;
@@ -63,6 +64,7 @@ export interface paths {
         };
         get?: never;
         put?: never;
+        /** Answers "check your inbox" whether or not the email has an account; an invitation link signs in at once. */
         post: operations["AuthController_register_v1"];
         delete?: never;
         options?: never;
@@ -79,7 +81,24 @@ export interface paths {
         };
         get?: never;
         put?: never;
+        /** Signs in, or asks for a 2FA code (`mfaRequired`). Unverified accounts get 403 `EMAIL_NOT_VERIFIED`. */
         post: operations["AuthController_login_v1"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/auth/login/2fa": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["AuthController_loginSecondFactor_v1"];
         delete?: never;
         options?: never;
         head?: never;
@@ -225,6 +244,86 @@ export interface paths {
         put?: never;
         post?: never;
         delete: operations["AuthController_revokeSession_v1"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/auth/2fa": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["AuthController_twoFactorStatus_v1"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/auth/2fa/setup": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["AuthController_setupTwoFactor_v1"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/auth/2fa/enable": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["AuthController_enableTwoFactor_v1"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/auth/2fa/disable": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["AuthController_disableTwoFactor_v1"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/auth/2fa/recovery-codes": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["AuthController_regenerateRecoveryCodes_v1"];
+        delete?: never;
         options?: never;
         head?: never;
         patch?: never;
@@ -2556,17 +2655,12 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
-        RegisterDto: {
-            /** Format: email */
-            email: string;
-            name: string;
-            password: string;
-        };
         UserDto: {
             id: string;
             email: string;
             name: string;
             emailVerified: boolean;
+            twoFactorEnabled: boolean;
             /** Format: date-time */
             createdAt: string;
         };
@@ -2575,20 +2669,49 @@ export interface components {
             accessToken: string;
             /** @description Seconds until the access token expires. */
             expiresIn: number;
-            /** @description Also returned for non-browser clients; browsers receive it as an httpOnly cookie. */
-            refreshToken: string;
+            /** @description Only for non-browser clients. Browsers (requests with an Origin header) get it solely as the httpOnly `sx_refresh` cookie. */
+            refreshToken?: string;
+        };
+        VerificationSentDto: {
+            /** @enum {boolean} */
+            verificationSent: true;
+        };
+        MfaChallengeDto: {
+            /** @enum {boolean} */
+            mfaRequired: true;
+            /** @description Valid for 5 minutes. */
+            mfaToken: string;
+        };
+        PasswordRequiredDto: {
+            /** @enum {boolean} */
+            passwordRequired: true;
+        };
+        RegisterDto: {
+            /** Format: email */
+            email: string;
+            name: string;
+            password: string;
+            /** @description Token from an invitation link sent to this email: the address counts as verified and you are signed in at once. */
+            invitationToken?: string;
         };
         LoginDto: {
             /** Format: email */
             email: string;
             password: string;
         };
+        SecondFactorDto: {
+            mfaToken: string;
+            /** @description Six-digit code from the authenticator app, or a recovery code (xxxx-xxxx). */
+            code: string;
+        };
         RefreshDto: {
             /** @description Only needed by non-browser clients; browsers send the httpOnly cookie. */
             refreshToken?: string;
         };
-        TokenDto: {
+        VerifyEmailDto: {
             token: string;
+            /** @description The password to set; needed when the link is opened outside the browser that registered. */
+            password?: string;
         };
         ForgotPasswordDto: {
             /** Format: email */
@@ -2612,6 +2735,28 @@ export interface components {
             lastUsedAt: string;
             current: boolean;
         };
+        TwoFactorStatusDto: {
+            enabled: boolean;
+            recoveryCodesLeft: number;
+        };
+        TotpSetupDto: {
+            /** @description Base32 secret, for typing into the app by hand. */
+            secret: string;
+            /** @description otpauth:// link to show as a QR code. */
+            otpauthUrl: string;
+        };
+        TotpCodeDto: {
+            code: string;
+        };
+        RecoveryCodesDto: {
+            /** @description Shown once; each works one time in place of an app code. */
+            recoveryCodes: string[];
+        };
+        DisableTwoFactorDto: {
+            password: string;
+            /** @description Code from the authenticator app, or a recovery code. */
+            code: string;
+        };
         ApiTokenDto: {
             id: string;
             name: string;
@@ -2623,10 +2768,17 @@ export interface components {
             expiresAt: string | null;
             /** Format: date-time */
             createdAt: string;
+            scopes: ("write" | "read")[];
+            /** @description The workspace the token is limited to, if any. */
+            workspaceId: string | null;
         };
         CreateApiTokenDto: {
             name: string;
             expiresAt?: string;
+            /** @description Default `["read", "write"]`. `read` alone only allows GET requests. */
+            scopes?: ("read" | "write")[];
+            /** @description Limit the token to one workspace you belong to. */
+            workspaceId?: string;
         };
         CreatedApiTokenDto: {
             id: string;
@@ -2639,6 +2791,9 @@ export interface components {
             expiresAt: string | null;
             /** Format: date-time */
             createdAt: string;
+            scopes: ("write" | "read")[];
+            /** @description The workspace the token is limited to, if any. */
+            workspaceId: string | null;
             /** @description The full token. Shown once. */
             token: string;
         };
@@ -3153,6 +3308,8 @@ export interface components {
         TaskListDto: {
             items: components["schemas"]["TaskDto"][];
             total: number;
+            /** @description Pass as `cursor` to get the next page; `null` on the last page. */
+            nextCursor: string | null;
         };
         BoardStatusDto: {
             id: string;
@@ -4483,7 +4640,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["AuthResponseDto"];
+                    "application/json": components["schemas"]["VerificationSentDto"] | components["schemas"]["AuthResponseDto"];
                 };
             };
         };
@@ -4498,6 +4655,29 @@ export interface operations {
         requestBody: {
             content: {
                 "application/json": components["schemas"]["LoginDto"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AuthResponseDto"] | components["schemas"]["MfaChallengeDto"];
+                };
+            };
+        };
+    };
+    AuthController_loginSecondFactor_v1: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SecondFactorDto"];
             };
         };
         responses: {
@@ -4564,15 +4744,17 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["TokenDto"];
+                "application/json": components["schemas"]["VerifyEmailDto"];
             };
         };
         responses: {
-            204: {
+            200: {
                 headers: {
                     [name: string]: unknown;
                 };
-                content?: never;
+                content: {
+                    "application/json": components["schemas"]["AuthResponseDto"] | components["schemas"]["PasswordRequiredDto"];
+                };
             };
         };
     };
@@ -4691,6 +4873,111 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+        };
+    };
+    AuthController_twoFactorStatus_v1: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TwoFactorStatusDto"];
+                };
+            };
+        };
+    };
+    AuthController_setupTwoFactor_v1: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TotpSetupDto"];
+                };
+            };
+        };
+    };
+    AuthController_enableTwoFactor_v1: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TotpCodeDto"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RecoveryCodesDto"];
+                };
+            };
+        };
+    };
+    AuthController_disableTwoFactor_v1: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DisableTwoFactorDto"];
+            };
+        };
+        responses: {
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    AuthController_regenerateRecoveryCodes_v1: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TotpCodeDto"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RecoveryCodesDto"];
+                };
             };
         };
     };
@@ -5952,7 +6239,10 @@ export interface operations {
                 sort?: "number" | "createdAt" | "updatedAt" | "position" | "title" | "priority" | "startDate" | "dueDate";
                 order?: "asc" | "desc";
                 limit?: number;
+                /** @description Deprecated: use `cursor`. Offsets skip or repeat rows while tasks change, and get slow on large lists. */
                 offset?: number;
+                /** @description `nextCursor` from the previous page (same filters, sort and order). Takes precedence over `offset`. */
+                cursor?: string;
             };
             header?: never;
             path: {

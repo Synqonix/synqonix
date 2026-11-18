@@ -25,6 +25,13 @@ export abstract class GithubClient {
   abstract isConfigured(): boolean;
   abstract installUrl(state: string): string | null;
   abstract getInstallation(githubId: string): Promise<GithubInstallationInfo | null>;
+  /**
+   * Whether the GitHub user who completed the install redirect (identified by the OAuth `code`
+   * GitHub added to it) administers this installation: they own the personal account it is on, or
+   * are an owner of the organization. Merely being able to reach some of its repositories is not
+   * enough, because connecting hands the whole installation to the workspace.
+   */
+  abstract userAdministersInstallation(code: string, installationGithubId: string): Promise<boolean>;
   abstract listRepositories(installationGithubId: string): Promise<GithubRepoInfo[]>;
   abstract createBranch(installationGithubId: string, fullName: string, name: string, fromBranch: string): Promise<{ sha: string; url: string }>;
   abstract setIssueState(installationGithubId: string, fullName: string, number: number, state: 'open' | 'closed'): Promise<void>;
@@ -43,7 +50,10 @@ export class HttpGithubClient extends GithubClient {
   }
 
   isConfigured() {
-    return !!(this.config.get('GITHUB_APP_ID') && this.config.get('GITHUB_APP_PRIVATE_KEY') && this.config.get('GITHUB_APP_SLUG') && this.config.get('GITHUB_WEBHOOK_SECRET'));
+    return !!(
+      this.config.get('GITHUB_APP_ID') && this.config.get('GITHUB_APP_PRIVATE_KEY') && this.config.get('GITHUB_APP_SLUG') && this.config.get('GITHUB_WEBHOOK_SECRET')
+      && this.config.get('GITHUB_APP_CLIENT_ID') && this.config.get('GITHUB_APP_CLIENT_SECRET')
+    );
   }
 
   installUrl(state: string) {
@@ -87,6 +97,35 @@ export class HttpGithubClient extends GithubClient {
     if (res.status === 404) return null;
     if (res.status !== 200) throw new BadGatewayException('Could not read the GitHub installation');
     return { githubId: String(res.body.id), accountLogin: res.body.account.login, accountType: res.body.account.type };
+  }
+
+  async userAdministersInstallation(code: string, installationGithubId: string): Promise<boolean> {
+    const clientId = this.config.get('GITHUB_APP_CLIENT_ID');
+    const clientSecret = this.config.get('GITHUB_APP_CLIENT_SECRET');
+    if (!clientId || !clientSecret) return false;
+    const exchange = await fetch(`${this.config.get('GITHUB_OAUTH_URL')}/login/oauth/access_token`, {
+      method: 'POST', headers: { Accept: 'application/json', 'Content-Type': 'application/json', 'User-Agent': 'synqonix' },
+      body: JSON.stringify({ client_id: clientId, client_secret: clientSecret, code }),
+    });
+    const granted = (await exchange.json().catch(() => null)) as { access_token?: string } | null;
+    if (!exchange.ok || !granted?.access_token) return false;
+    const token = granted.access_token;
+    // The installations this person can reach, as GitHub sees it with their own token.
+    let account: { login: string; type: string } | undefined;
+    for (let page = 1; page <= 10 && !account; page++) {
+      const res = await this.request<{ installations: { id: number; account: { login: string; type: string } | null }[] }>(`/user/installations?per_page=100&page=${page}`, { token });
+      if (res.status !== 200) return false;
+      account = res.body.installations.find((i) => String(i.id) === installationGithubId)?.account ?? undefined;
+      if (res.body.installations.length < 100) break;
+    }
+    if (!account) return false;
+    // Reaching the installation is not enough: it covers the whole account, so the person must own it.
+    if (account.type === 'Organization') {
+      const membership = await this.request<{ state: string; role: string }>(`/user/memberships/orgs/${encodeURIComponent(account.login)}`, { token });
+      return membership.status === 200 && membership.body.state === 'active' && membership.body.role === 'admin';
+    }
+    const me = await this.request<{ login: string }>('/user', { token });
+    return me.status === 200 && me.body.login.toLowerCase() === account.login.toLowerCase();
   }
 
   async listRepositories(installationGithubId: string): Promise<GithubRepoInfo[]> {

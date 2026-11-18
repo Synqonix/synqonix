@@ -1,8 +1,8 @@
-import { mkdir, rm, stat } from 'node:fs/promises';
+import { mkdir, readdir, rm, stat } from 'node:fs/promises';
 import { dirname, isAbsolute, relative, resolve } from 'node:path';
 import type { Env } from '../config/env.js';
 import type { SignedTokens } from './signed-token.js';
-import { type PresignedDownload, type PresignedUpload, StorageService, UPLOAD_CONTENT_TYPE } from './storage.service.js';
+import { type PresignedDownload, type PresignedUpload, StorageService, UPLOAD_CONTENT_TYPE, type StoredObject } from './storage.service.js';
 
 /**
  * Disk storage for development and tests. It hands out the same kind of links as the S3 driver
@@ -53,6 +53,20 @@ export class LocalStorage extends StorageService {
       return { size: (await stat(this.pathFor(key))).size };
     } catch {
       return null;
+    }
+  }
+
+  async *list(): AsyncIterable<StoredObject> {
+    let entries;
+    try {
+      entries = await readdir(this.root, { recursive: true, withFileTypes: true });
+    } catch {
+      return; // nothing uploaded yet
+    }
+    for (const e of entries) {
+      if (!e.isFile()) continue;
+      const path = resolve(e.parentPath, e.name);
+      yield { key: relative(this.root, path).split('\\').join('/'), lastModified: (await stat(path)).mtime };
     }
   }
 

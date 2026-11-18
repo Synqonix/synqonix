@@ -19,7 +19,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const pathname = usePathname();
   const signedIn = status === "authenticated" && !!user;
-  const workspaces = useQuery(() => (signedIn ? api.GET("/api/v1/workspaces") : Promise.resolve({ data: [] as { id: string; name: string }[], error: undefined })), [signedIn]);
+  const workspaces = useQuery(["/api/v1/workspaces", "app/(app)/layout:0", signedIn], () => (signedIn ? api.GET("/api/v1/workspaces") : Promise.resolve({ data: [] as { id: string; name: string }[], error: undefined })));
 
   useEffect(() => {
     if (status !== "anonymous") return;

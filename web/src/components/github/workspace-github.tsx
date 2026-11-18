@@ -19,8 +19,8 @@ export function WorkspaceGithub() {
   const { workspace, isAdmin, members } = useWorkspace();
   const params = useSearchParams();
   const path = { workspaceId: workspace.id };
-  const status = useQuery(() => api.GET("/api/v1/workspaces/{workspaceId}/github", { params: { path } }), [workspace.id]);
-  const contributors = useQuery(() => api.GET("/api/v1/workspaces/{workspaceId}/github/contributors", { params: { path } }), [workspace.id]);
+  const status = useQuery(["/api/v1/workspaces/{workspaceId}/github", "components/github/workspace-github:0", workspace.id], () => api.GET("/api/v1/workspaces/{workspaceId}/github", { params: { path } }));
+  const contributors = useQuery(["/api/v1/workspaces/{workspaceId}/github/contributors", "components/github/workspace-github:1", workspace.id], () => api.GET("/api/v1/workspaces/{workspaceId}/github/contributors", { params: { path } }));
   const [error, setError] = useState<string | null>(null);
   const notice = NOTICES[params.get("github") ?? ""];
 

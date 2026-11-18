@@ -1,5 +1,6 @@
 import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
+import { HOLD, RunOnce } from '../redis/job-lock.js';
 import type { Membership, RecurringTask } from '../generated/prisma/client.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { ProjectAccessService } from '../projects/project-access.service.js';
@@ -129,6 +130,7 @@ export class RecurringService {
   }
 
   @Cron(CronExpression.EVERY_5_MINUTES)
+  @RunOnce('recurring-tasks', HOLD.fiveMinutes)
   async tick() {
     try { await this.runDue(); } catch (err) { this.logger.error('Recurring tasks failed', err as Error); }
   }

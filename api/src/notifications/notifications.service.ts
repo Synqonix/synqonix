@@ -2,6 +2,7 @@ import { BadRequestException, Injectable, Logger, NotFoundException } from '@nes
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { Prisma } from '../generated/prisma/client.js';
 import type { Membership, Notification, NotificationType } from '../generated/prisma/client.js';
+import { ChannelAccessService } from '../channels/channel-access.service.js';
 import { MailService } from '../mail/mail.service.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { ProjectAccessService } from '../projects/project-access.service.js';
@@ -46,6 +47,7 @@ export class NotificationsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly projects: ProjectAccessService,
+    private readonly channelAccess: ChannelAccessService,
     private readonly mail: MailService,
     private readonly events: EventEmitter2,
   ) {}
@@ -136,8 +138,13 @@ export class NotificationsService {
       if (!shouldSendEmailsNow(mode, this.quietOf(pref ?? undefined), pref?.lastDigestAt ?? null, now)) continue;
 
       const pending = await this.prisma.notification.findMany({ where: { userId, emailState: 'PENDING' }, orderBy: { createdAt: 'asc' }, take: 50 });
-      const unread = pending.filter((n) => n.readAt === null);
-      const seen = pending.filter((n) => n.readAt !== null);
+      // Access may have been lost while an email waited (quiet hours, digest): what the person can
+      // no longer see is dropped, not sent.
+      const stillAllowed = new Set(
+        (await this.prisma.notification.findMany({ where: { id: { in: pending.map((n) => n.id) }, ...(await this.accessWhere(userId)) }, select: { id: true } })).map((n) => n.id),
+      );
+      const unread = pending.filter((n) => n.readAt === null && stillAllowed.has(n.id));
+      const seen = pending.filter((n) => !unread.includes(n));
       if (seen.length) await this.prisma.notification.updateMany({ where: { id: { in: seen.map((n) => n.id) } }, data: { emailState: 'NONE' } });
       if (unread.length === 0) continue;
       try {
@@ -157,17 +164,31 @@ export class NotificationsService {
 
   // ---------------------------------------------------------------- reading
 
-  /** Where clause for what the user may still see: their workspaces, and projects they can still view. */
-  private async visibleWhere(userId: string, workspaceId?: string): Promise<Prisma.NotificationWhereInput> {
+  /** What the user may still see, regardless of how it is delivered: their workspaces, projects they can still view and channels they can still read. */
+  private async accessWhere(userId: string, workspaceId?: string): Promise<Prisma.NotificationWhereInput> {
     const memberships: Membership[] = await this.prisma.membership.findMany({ where: { userId, ...(workspaceId ? { workspaceId } : {}) } });
     if (memberships.length === 0) return { id: { in: [] } };
+    // Notifications about chat carry message snippets, so a channel the person lost access to hides them
+    // even when the notification itself has no project.
+    const channelRows = await this.prisma.notification.findMany({
+      where: { userId, channelId: { not: null }, ...(workspaceId ? { workspaceId } : {}) }, distinct: ['channelId'], select: { channelId: true },
+    });
+    const channelIds = channelRows.map((r) => r.channelId!);
+    const visible = new Set(await this.channelAccess.visibleChannelIds(userId, channelIds, workspaceId));
+    const hidden = channelIds.filter((id) => !visible.has(id));
     return {
-      userId, inApp: true,
+      userId,
+      ...(hidden.length && { NOT: { channelId: { in: hidden } } }),
       OR: memberships.map((m) => ({
         workspaceId: m.workspaceId,
         OR: [{ projectId: null }, { project: { is: this.projects.visibleProjects(m) } }],
       })),
     };
+  }
+
+  /** Same, for the inbox: only what is shown there. */
+  private async visibleWhere(userId: string, workspaceId?: string): Promise<Prisma.NotificationWhereInput> {
+    return { AND: [await this.accessWhere(userId, workspaceId), { inApp: true }] };
   }
 
   private notSnoozed(now: Date): Prisma.NotificationWhereInput {
@@ -196,14 +217,15 @@ export class NotificationsService {
     return { count: workspaces.reduce((n, w) => n + w.count, 0), workspaces };
   }
 
-  private async own(userId: string, id: string) {
-    const n = await this.prisma.notification.findFirst({ where: { id, userId } });
+  /** `workspaceId` limits the check to one workspace (for workspace-bound API tokens). */
+  private async own(userId: string, id: string, workspaceId?: string) {
+    const n = await this.prisma.notification.findFirst({ where: { id, userId, ...(workspaceId ? { workspaceId } : {}) } });
     if (!n) throw new NotFoundException('Notification not found');
     return n;
   }
 
-  async setRead(userId: string, id: string, read: boolean) {
-    await this.own(userId, id);
+  async setRead(userId: string, id: string, read: boolean, workspaceId?: string) {
+    await this.own(userId, id, workspaceId);
     await this.prisma.notification.update({ where: { id }, data: { readAt: read ? new Date() : null } });
     this.changed(userId);
   }
@@ -213,17 +235,17 @@ export class NotificationsService {
     this.changed(userId);
   }
 
-  async snooze(userId: string, id: string, until: string, now = new Date()) {
+  async snooze(userId: string, id: string, until: string, now = new Date(), workspaceId?: string) {
     const at = new Date(until);
     if (at.getTime() <= now.getTime()) throw new BadRequestException('Choose a time in the future');
     if (at.getTime() - now.getTime() > MAX_SNOOZE_MS) throw new BadRequestException('You can snooze for at most 30 days');
-    await this.own(userId, id);
+    await this.own(userId, id, workspaceId);
     await this.prisma.notification.update({ where: { id }, data: { snoozedUntil: at } });
     this.changed(userId);
   }
 
-  async dismiss(userId: string, id: string) {
-    await this.own(userId, id);
+  async dismiss(userId: string, id: string, workspaceId?: string) {
+    await this.own(userId, id, workspaceId);
     await this.prisma.notification.delete({ where: { id } });
     this.changed(userId);
   }
@@ -239,10 +261,11 @@ export class NotificationsService {
 
   // ---------------------------------------------------------------- preferences
 
-  async preferences(userId: string): Promise<PreferencesDto> {
+  /** `workspaceId` limits the muted projects listed (for an API token bound to one workspace). */
+  async preferences(userId: string, workspaceId?: string): Promise<PreferencesDto> {
     const [pref, mutes] = await Promise.all([
       this.prisma.notificationPreference.findUnique({ where: { userId } }),
-      this.prisma.notificationMute.findMany({ where: { userId } }),
+      this.prisma.notificationMute.findMany({ where: { userId, ...(workspaceId && { project: { workspaceId } }) } }),
     ]);
     const types = resolveTypePreferences(pref?.types);
     const q = this.quietOf(pref ?? undefined);

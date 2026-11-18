@@ -4,7 +4,7 @@ import type { Membership, Prisma } from '../generated/prisma/client.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { ProjectAccessService } from '../projects/project-access.service.js';
 import { ActivityService } from './activity.service.js';
-import type { TaskDetailDto } from './dto/task.dto.js';
+import type { TaskDetailDto } from './dto/task-response.dto.js';
 import { TaskEvents } from './events.js';
 import { TaskAccessService } from './task-access.service.js';
 import { taskKey } from './task-ref.js';
@@ -129,7 +129,7 @@ export class TaskMoveService {
         taskKey: taskKey(target.key, row.number), actorId: m.userId,
       };
       this.events.emit(TaskEvents.updated, { ...base, fields: ['project'], sprintIds: [...sprintsLeft] });
-      this.events.emit(TaskEvents.moved, { ...base, fromProjectId: source.id });
+      this.events.emit(TaskEvents.moved, { ...base, fromProjectId: source.id, fromTaskKey: keysBefore.get(t.id) ?? taskKey(source.key, t.number) });
     }
     return this.tasks.detail(m, root.id);
   }

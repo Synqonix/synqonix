@@ -2,7 +2,7 @@ import { Injectable, NotFoundException } from '@nestjs/common';
 import type { Membership } from '../generated/prisma/client.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { ActivityService } from './activity.service.js';
-import type { ChecklistDto } from './dto/task.dto.js';
+import type { ChecklistDto } from './dto/task-response.dto.js';
 import type { UpdateChecklistItemDto } from './dto/details.dto.js';
 import { TaskAccessService } from './task-access.service.js';
 

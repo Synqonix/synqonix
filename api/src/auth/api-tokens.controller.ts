@@ -21,7 +21,7 @@ export class ApiTokensController {
   @Post()
   @ApiCreatedResponse({ type: CreatedApiTokenDto })
   create(@CurrentUser() user: AuthUser, @Body() dto: CreateApiTokenDto) {
-    return this.tokens.create(user.id, dto.name, dto.expiresAt);
+    return this.tokens.create(user.id, dto.name, dto.expiresAt, { scopes: dto.scopes, workspaceId: dto.workspaceId });
   }
 
   @Delete(':id') @HttpCode(204)

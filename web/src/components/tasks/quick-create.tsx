@@ -22,18 +22,12 @@ export function QuickCreate({ open, onClose }: { open: boolean; onClose: () => v
   const [chosenProject, setChosenProject] = useState<string | null>(null);
   const [templateId, setTemplateId] = useState("");
 
-  const projects = useQuery(
-    async () => (open ? api.GET("/api/v1/workspaces/{workspaceId}/projects", { params: { path: { workspaceId: workspace.id } } }) : { data: undefined }),
-    [workspace.id, open],
-  );
+  const projects = useQuery(["/api/v1/workspaces/{workspaceId}/projects", "components/tasks/quick-create:0", workspace.id, open], async () => (open ? api.GET("/api/v1/workspaces/{workspaceId}/projects", { params: { path: { workspaceId: workspace.id } } }) : { data: undefined }));
 
   const projectForTemplates = chosenProject ?? params.projectId ?? null;
-  const templates = useQuery(
-    async () => (open && projectForTemplates
+  const templates = useQuery(["/api/v1/workspaces/{workspaceId}/projects/{projectId}/templates", "components/tasks/quick-create:1", workspace.id, open, projectForTemplates], async () => (open && projectForTemplates
       ? api.GET("/api/v1/workspaces/{workspaceId}/projects/{projectId}/templates", { params: { path: { workspaceId: workspace.id, projectId: projectForTemplates } } })
-      : { data: [] as Schemas["TemplateDto"][] }),
-    [workspace.id, open, projectForTemplates],
-  );
+      : { data: [] as Schemas["TemplateDto"][] }));
 
   useEffect(() => {
     if (!open) return;

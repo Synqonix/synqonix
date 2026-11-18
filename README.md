@@ -59,9 +59,9 @@ cd synqonix
 docker compose up --build
 ```
 
-Then open **<http://localhost:3000>**, create an account, and read the verification email in the local inbox at <http://localhost:8025>. To start with a sample workspace, run `docker compose --profile demo up --build` and sign in as `demo@synqonix.local` / `demo-password-123`.
+Then open **<http://localhost:3000>**, create an account, and open the verification email in the local mailbox at <http://localhost:6245>; the link signs you in. To start with a sample workspace, run `docker compose --profile demo up --build` and sign in as `demo@synqonix.local` / `demo-password-123`.
 
-This starts Postgres, the API, the web app and Mailpit (a fake inbox), applies the database migrations automatically, and keeps your data in Docker volumes (`docker compose down -v` wipes it). It uses fixed development secrets over plain HTTP, so it is for trying Synqonix and for local use; for a real deployment see [Deploying](#deploying).
+This starts Postgres, the API, the web app and [Dev-Remail](https://github.com/abdullahqasim01/Dev-Remail) (a local Resend-compatible mailbox, so no real email is sent), applies the database migrations automatically, and keeps your data in Docker volumes (`docker compose down -v` wipes it). It uses fixed development secrets over plain HTTP, so it is for trying Synqonix and for local use; for a real deployment see [Deploying](#deploying).
 
 ## Quick start (development)
 
@@ -70,7 +70,7 @@ To work on the code you run the apps yourself with hot reload. You need **Node.j
 ```bash
 git clone https://github.com/abdullahqasim01/synqonix.git
 cd synqonix
-docker compose -f docker-compose.dev.yml up -d   # Postgres 17.9 on :5432, Mailpit on :8025
+docker compose -f docker-compose.dev.yml up -d   # Postgres 17.9 on :5432, Dev-Remail mailbox on :6245
 
 # API  → http://localhost:4000  (Swagger UI at /docs)
 cd api
@@ -92,7 +92,7 @@ Optional demo data (a workspace, a Scrum project and an active sprint):
 node api/scripts/seed-demo.mjs       # then sign in as demo@synqonix.local / demo-password-123
 ```
 
-Verification and password-reset emails land in Mailpit at <http://localhost:8025>.
+Emails (verification, password reset, notifications) are sent with the Resend SDK to Dev-Remail; read them at <http://localhost:6245>.
 
 ## The VS Code extension
 
@@ -109,7 +109,7 @@ Three independent apps, each with its own `package.json` and lockfile (no root p
 
 | Folder | What it is | Stack |
 |---|---|---|
-| [`api/`](api) | REST + WebSocket API | NestJS, Prisma, PostgreSQL, Socket.IO, JWT, Resend/SMTP, S3-compatible storage |
+| [`api/`](api) | REST + WebSocket API | NestJS, Prisma, PostgreSQL, Socket.IO, JWT, Resend, S3-compatible storage |
 | [`web/`](web) | Web app | Next.js (App Router), Tailwind, typed API client |
 | [`vscode-extension/`](vscode-extension) | Editor integration | TypeScript, esbuild, typed API client |
 

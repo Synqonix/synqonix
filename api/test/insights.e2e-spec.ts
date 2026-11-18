@@ -235,6 +235,50 @@ describe('Insights and time tracking (e2e)', () => {
       await http().post(api('/time/timer/start')).set(bob.auth).send({ taskRef: 'NOPE-1' }).expect(404);
     });
 
+    it('keeps a workspace-bound token away from a timer running in another workspace', async () => {
+      const other = await createWorkspace(app, mail, alice, []);
+      const otherProject = (await http().post(`/api/v1/workspaces/${other}/projects`).set(alice.auth).send({ name: 'Other', key: 'OTH', template: 'SCRUM' }).expect(201)).body;
+      const otherTask = (await http().post(`/api/v1/workspaces/${other}/projects/${otherProject.id}/tasks`).set(alice.auth).send({ title: 'Elsewhere' }).expect(201)).body;
+      const mineTask = await mk('Here');
+      const started = (await http().post(`/api/v1/workspaces/${other}/time/timer/start`).set(alice.auth).send({ taskRef: otherTask.key }).expect(200)).body.entry;
+      await prisma.timeEntry.update({ where: { id: started.id }, data: { startedAt: new Date(Date.now() - 30 * 60_000) } });
+
+      const bound = (await http().post('/api/v1/api-tokens').set(alice.auth).send({ name: 'bound', workspaceId: ws }).expect(201)).body;
+      const asBound = { Authorization: `Bearer ${bound.token}` };
+      // The bound token cannot stop it, see it, or displace it by starting a timer here.
+      expect((await http().post(api('/time/timer/stop')).set(asBound).expect(200)).body.entry).toBeNull();
+      await http().post(api('/time/timer/start')).set(asBound).send({ taskRef: mineTask.key }).expect(409);
+      const still = await prisma.timeEntry.findUniqueOrThrow({ where: { id: started.id } });
+      expect(still.endedAt).toBeNull();
+
+      // A full session still stops it, and logs the time.
+      const stopped = (await http().post(api('/time/timer/stop')).set(alice.auth).expect(200)).body.entry;
+      expect(stopped).toMatchObject({ minutes: 30, taskKey: otherTask.key });
+    });
+
+    it('does not reveal a private task\'s current title in my timesheet or timer after I lose access to the project', async () => {
+      const priv = (await http().post(api('/projects')).set(alice.auth).send({ name: 'Private', key: 'PRV', template: 'SCRUM', visibility: 'PRIVATE' }).expect(201)).body;
+      await http().put(api(`/projects/${priv.id}/members`)).set(alice.auth).send({ userId: bob.id, role: 'MEMBER' }).expect(200);
+      const task = (await http().post(api(`/projects/${priv.id}/tasks`)).set(alice.auth).send({ title: 'Original title' }).expect(201)).body;
+      await http().post(api(`/tasks/${task.key}/time`)).set(bob.auth).send({ minutes: 20 }).expect(201);
+      expect((await http().get(api('/time/mine')).set(bob.auth).expect(200)).body[0]).toMatchObject({ taskKey: task.key, taskTitle: 'Original title' });
+      const started = (await http().post(api('/time/timer/start')).set(bob.auth).send({ taskRef: task.key }).expect(200)).body.entry;
+      expect(started.taskTitle).toBe('Original title');
+
+      await http().delete(api(`/projects/${priv.id}/members/${bob.id}`)).set(alice.auth).expect(204);
+      await http().patch(api(`/tasks/${task.key}`)).set(alice.auth).send({ title: 'Secret new title' }).expect(200);
+
+      const mine = (await http().get(api('/time/mine')).set(bob.auth).expect(200)).body as { taskTitle: string; taskKey: string; minutes: number }[];
+      expect(JSON.stringify(mine)).not.toContain('Secret new title');
+      expect(JSON.stringify(mine)).not.toContain(task.key);
+      expect(mine.map((e) => e.minutes)).toContain(20); // the person's own time is still theirs
+      const timer = (await http().get(api('/time/timer')).set(bob.auth).expect(200)).body.entry;
+      expect(JSON.stringify(timer)).not.toContain('Secret new title');
+      await prisma.timeEntry.update({ where: { id: started.id }, data: { startedAt: new Date(Date.now() - 10 * 60_000) } });
+      const stopped = (await http().post(api('/time/timer/stop')).set(bob.auth).expect(200)).body.entry;
+      expect(JSON.stringify(stopped)).not.toContain('Secret new title');
+    });
+
     it('stops a long timer with its elapsed time, and lists my entries', async () => {
       const t = await mk('Long');
       const started = (await http().post(api('/time/timer/start')).set(alice.auth).send({ taskRef: t.key }).expect(200)).body.entry;

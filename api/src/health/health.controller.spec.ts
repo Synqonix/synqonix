@@ -2,10 +2,15 @@ import { NotFoundException, ServiceUnavailableException, UnauthorizedException }
 import type { ConfigService } from '@nestjs/config';
 import { describe, expect, it, vi } from 'vitest';
 import { HealthController } from './health.controller.js';
+import type { Redis } from 'ioredis';
 import type { PrismaService } from '../prisma/prisma.service.js';
 
-const make = (query: () => Promise<unknown>, metricsToken?: string) =>
-  new HealthController({ $queryRaw: query } as unknown as PrismaService, { get: () => metricsToken } as unknown as ConfigService<never, true>);
+const make = (query: () => Promise<unknown>, metricsToken?: string, redisPing?: () => Promise<unknown>) =>
+  new HealthController(
+    { $queryRaw: query } as unknown as PrismaService,
+    { get: () => metricsToken } as unknown as ConfigService<never, true>,
+    (redisPing ? { ping: redisPing } : null) as unknown as Redis | null,
+  );
 
 describe('HealthController', () => {
   it('reports ok when the database responds', async () => {
@@ -17,6 +22,13 @@ describe('HealthController', () => {
     await expect(
       make(vi.fn().mockRejectedValue(new Error('down'))).check(),
     ).rejects.toBeInstanceOf(ServiceUnavailableException);
+  });
+
+  it('includes Redis when configured, and is not ready without it', async () => {
+    const ok = vi.fn().mockResolvedValue([1]);
+    expect(await make(ok, undefined, vi.fn().mockResolvedValue('PONG')).check()).toMatchObject({ db: 'up', redis: 'up' });
+    await expect(make(ok, undefined, vi.fn().mockRejectedValue(new Error('down'))).check()).rejects.toBeInstanceOf(ServiceUnavailableException);
+    expect(await make(ok).check()).not.toHaveProperty('redis');
   });
 
   it('liveness does not touch the database', () => {

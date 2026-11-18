@@ -13,7 +13,7 @@ type Project = Schemas["ProjectDetailDto"];
 
 export function Templates({ project }: { project: Project }) {
   const path = { workspaceId: project.workspaceId, projectId: project.id };
-  const list = useQuery(() => api.GET("/api/v1/workspaces/{workspaceId}/projects/{projectId}/templates", { params: { path } }), [project.id]);
+  const list = useQuery(["/api/v1/workspaces/{workspaceId}/projects/{projectId}/templates", "components/project-tools/templates-recurring:0", project.id], () => api.GET("/api/v1/workspaces/{workspaceId}/projects/{projectId}/templates", { params: { path } }));
   const [error, setError] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
 
@@ -81,7 +81,7 @@ export function Templates({ project }: { project: Project }) {
 export function RecurringTasks({ project }: { project: Project }) {
   const { members } = useWorkspace();
   const path = { workspaceId: project.workspaceId, projectId: project.id };
-  const list = useQuery(() => api.GET("/api/v1/workspaces/{workspaceId}/projects/{projectId}/recurring", { params: { path } }), [project.id]);
+  const list = useQuery(["/api/v1/workspaces/{workspaceId}/projects/{projectId}/recurring", "components/project-tools/templates-recurring:1", project.id], () => api.GET("/api/v1/workspaces/{workspaceId}/projects/{projectId}/recurring", { params: { path } }));
   const [error, setError] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
   const [defaultStart] = useState(() => toLocalInput(new Date(Date.now() + 3_600_000)));

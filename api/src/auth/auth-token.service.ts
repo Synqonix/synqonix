@@ -2,28 +2,32 @@ import { Injectable, UnauthorizedException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import { sha256 } from '../common/crypto.js';
-import type { AuthUser } from '../common/decorators.js';
+import type { ApiTokenScope, AuthUser } from '../common/decorators.js';
 import type { Env } from '../config/env.js';
 import { PrismaService } from '../prisma/prisma.service.js';
+import { sessionCredentialId, tokenCredentialId } from './events.js';
+import { JwtKeyRing, previousSecrets } from './jwt-keys.js';
 
 export const API_TOKEN_PREFIX = 'sqx_';
 
 export interface Authenticated extends AuthUser {
   /** When the credential stops being valid (JWTs only), as epoch milliseconds. */
   expiresAt?: number;
+  /** Identifies the session or API token behind the connection, for revocation. */
+  credentialId?: string;
 }
 
 /** Validates a bearer credential (session JWT or personal API token). Shared by HTTP and WebSocket auth. */
 @Injectable()
 export class AuthTokenService {
-  private readonly secret: string;
+  private readonly keys: JwtKeyRing;
 
   constructor(
-    private readonly jwt: JwtService,
+    jwt: JwtService,
     private readonly prisma: PrismaService,
     config: ConfigService<Env, true>,
   ) {
-    this.secret = config.get('JWT_ACCESS_SECRET');
+    this.keys = new JwtKeyRing(jwt, config.get('JWT_ACCESS_SECRET'), previousSecrets(config.get('JWT_ACCESS_SECRET_PREVIOUS')));
   }
 
   authenticate(token: string): Promise<Authenticated> {
@@ -31,9 +35,7 @@ export class AuthTokenService {
   }
 
   private async fromJwt(token: string): Promise<Authenticated> {
-    const payload = await this.jwt
-      .verifyAsync<{ sub: string; sid: string; exp: number }>(token, { secret: this.secret })
-      .catch(() => null);
+    const payload = await this.keys.verify<{ sub: string; sid: string; exp: number }>(token);
     if (!payload) throw new UnauthorizedException();
 
     const session = await this.prisma.session.findUnique({
@@ -47,6 +49,7 @@ export class AuthTokenService {
       id: session.user.id,
       email: session.user.email,
       sessionId: session.id,
+      credentialId: sessionCredentialId(session.id),
       via: 'jwt',
       expiresAt: payload.exp * 1000,
     };
@@ -68,7 +71,10 @@ export class AuthTokenService {
       id: row.user.id,
       email: row.user.email,
       via: 'api-token',
+      credentialId: tokenCredentialId(row.id),
       expiresAt: row.expiresAt?.getTime(),
+      scopes: row.scopes.filter((s): s is ApiTokenScope => s === 'read' || s === 'write'),
+      tokenWorkspaceId: row.workspaceId ?? undefined,
     };
   }
 }

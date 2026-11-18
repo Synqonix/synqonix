@@ -4,11 +4,14 @@ import { tokenStore } from "@/lib/auth/token-store";
 
 export const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4000";
 
-/** Unauthenticated client (login, register, refresh...). */
 // Resolve fetch lazily so it can be stubbed in tests.
 const lazyFetch = (request: Request) => globalThis.fetch(request);
 
-export const publicApi = createClient<paths>({ baseUrl: API_URL, fetch: lazyFetch });
+/**
+ * Unauthenticated client (login, register, refresh...). Sends and receives cookies, because the
+ * refresh token lives in an httpOnly cookie set by the API.
+ */
+export const publicApi = createClient<paths>({ baseUrl: API_URL, fetch: lazyFetch, credentials: "include" });
 
 // A request body can only be read once, so keep a pristine copy to replay after a refresh.
 const replayCopies = new WeakMap<Request, Request>();

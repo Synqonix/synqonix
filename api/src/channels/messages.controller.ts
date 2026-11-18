@@ -2,12 +2,13 @@ import { Body, Controller, Delete, Get, HttpCode, Param, Patch, Post, Put, Query
 import { ApiBearerAuth, ApiCreatedResponse, ApiOkResponse, ApiParam, ApiTags } from '@nestjs/swagger';
 import type { Membership } from '../generated/prisma/client.js';
 import { CurrentMembership, RequirePermission, WorkspaceGuard } from '../permissions/workspace.guard.js';
-import { TaskRefDto } from '../tasks/dto/task.dto.js';
+import { TaskRefDto } from '../tasks/dto/task-response.dto.js';
 import {
   CreateTaskFromMessageDto, DiscussionDto, EditMessageDto, LinkTaskDto, ListMessagesQueryDto, MarkReadDto, MessageAttachmentDto,
   MessageDto, MessageListDto, PostMessageDto, RepliesQueryDto, TaskRefsQueryDto,
 } from './dto/channels.dto.js';
 import { ConfirmUploadDto, DownloadUrlDto, RequestUploadDto, UploadTargetDto } from '../storage/storage.dto.js';
+import { ChatFilesService } from './chat-files.service.js';
 import { MessagesService } from './messages.service.js';
 
 
@@ -17,7 +18,10 @@ import { MessagesService } from './messages.service.js';
 @ApiParam({ name: 'workspaceId', type: String })
 @Controller('workspaces/:workspaceId')
 export class MessagesController {
-  constructor(private readonly messages: MessagesService) {}
+  constructor(
+    private readonly messages: MessagesService,
+    private readonly files: ChatFilesService,
+  ) {}
 
   // ----- cross references -----
 
@@ -61,14 +65,14 @@ export class MessagesController {
   @ApiParam({ name: 'channelId', type: String })
   @ApiCreatedResponse({ type: UploadTargetDto })
   requestUpload(@CurrentMembership() m: Membership, @Param('channelId') id: string, @Body() dto: RequestUploadDto) {
-    return this.messages.requestUpload(m, id, dto);
+    return this.files.requestUpload(m, id, dto);
   }
 
   @Post('channels/:channelId/attachments') @RequirePermission('workspace.read')
   @ApiParam({ name: 'channelId', type: String })
   @ApiCreatedResponse({ type: MessageAttachmentDto })
   confirmUpload(@CurrentMembership() m: Membership, @Param('channelId') id: string, @Body() dto: ConfirmUploadDto) {
-    return this.messages.confirmUpload(m, id, dto.uploadToken);
+    return this.files.confirmUpload(m, id, dto.uploadToken);
   }
 
   /** A short-lived presigned link; files are always served as downloads so they cannot run scripts on our origin. */
@@ -76,7 +80,7 @@ export class MessagesController {
   @ApiParam({ name: 'channelId', type: String })
   @ApiOkResponse({ type: DownloadUrlDto })
   downloadUrl(@CurrentMembership() m: Membership, @Param('channelId') id: string, @Param('attachmentId') attachmentId: string) {
-    return this.messages.downloadUrl(m, id, attachmentId);
+    return this.files.downloadUrl(m, id, attachmentId);
   }
 
   @Get('channels/:channelId/messages/:messageId') @RequirePermission('workspace.read')

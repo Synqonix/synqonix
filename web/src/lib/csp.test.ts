@@ -34,4 +34,12 @@ describe("buildCsp", () => {
     expect(dev).toContain("'unsafe-eval'");
     expect(dev).not.toContain("upgrade-insecure-requests");
   });
+
+  it("lets error reports reach the Sentry origin only when a DSN is configured", () => {
+    const connect = (c: string) => c.split("; ").find((d) => d.startsWith("connect-src ")) ?? "";
+    const on = buildCsp({ nonce: "n", apiUrl: "https://api.example.com", sentryDsn: "https://abc@o1.ingest.sentry.io/42" });
+    expect(connect(on)).toContain("https://o1.ingest.sentry.io");
+    expect(connect(on)).not.toContain("abc@");
+    expect(connect(buildCsp({ nonce: "n", apiUrl: "https://api.example.com" }))).not.toContain("sentry");
+  });
 });

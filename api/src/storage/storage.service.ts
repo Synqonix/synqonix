@@ -22,7 +22,11 @@ export abstract class StorageService {
   /** Size of the stored object, or null when it does not exist. */
   abstract head(key: string): Promise<{ size: number } | null>;
   abstract delete(key: string): Promise<void>;
+  /** Every stored object, for the orphan sweep. */
+  abstract list(): AsyncIterable<StoredObject>;
 }
+
+export interface StoredObject { key: string; lastModified: Date }
 
 /** Uploads always use one content type so a signed link cannot be used to store something else. */
 export const UPLOAD_CONTENT_TYPE = 'application/octet-stream';

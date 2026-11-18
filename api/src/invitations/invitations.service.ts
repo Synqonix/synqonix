@@ -95,6 +95,11 @@ export class InvitationsService {
       where: { id, workspaceId: actor.workspaceId, acceptedAt: null, revokedAt: null },
     });
     if (!old) throw new NotFoundException('Invitation not found');
+    // The same rule as creating one: reissuing must not let an admin hand out an owner invitation.
+    // (An expired invitation may be renewed, as an admin could create the same one afresh.)
+    if (old.role === 'OWNER' && actor.role !== 'OWNER') {
+      throw new ForbiddenException('Only an owner can invite another owner');
+    }
     await this.prisma.invitation.update({ where: { id }, data: { revokedAt: new Date() } });
     const { invitation, token } = await this.issue(actor.workspaceId, old.email, old.role, actor.userId);
     await this.sendMail(invitation, token);
@@ -140,10 +145,12 @@ export class InvitationsService {
     if (claimed.count === 0) throw new GoneException('This invitation was already used');
 
     // Following the emailed link proves ownership of the address.
-    await this.prisma.user.updateMany({
+    const verified = await this.prisma.user.updateMany({
       where: { id: user.id, emailVerifiedAt: null },
       data: { emailVerifiedAt: new Date() },
     });
+    // The address is proven now, so verification links mailed earlier are obsolete.
+    if (verified.count > 0) await this.prisma.emailToken.deleteMany({ where: { userId: user.id, type: 'VERIFY_EMAIL', usedAt: null } });
     const membership = await this.prisma.membership.upsert({
       where: { workspaceId_userId: { workspaceId: inv.workspaceId, userId: user.id } },
       create: { workspaceId: inv.workspaceId, userId: user.id, role: inv.role },
