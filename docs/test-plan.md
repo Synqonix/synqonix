@@ -4,7 +4,7 @@ Part 1 sets up the stack. Part 2 runs the automated suites. Part 3 is a manual c
 
 ## 1. Setup
 
-Prerequisites: Node 22, npm, Docker (for Postgres 17.9 and Dev-Remail), git, and VS Code 1.90+ for the extension.
+Prerequisites: Node 22, npm, Docker (for Postgres 17.9 and Dev-Remail), git, and VS Code 1.90+ if you also test the extension.
 
 ```bash
 # from the repo root
@@ -20,9 +20,6 @@ THROTTLE_DISABLED=1 npm run start:dev     # API on http://localhost:4000 (docs a
 cd ../web
 npm ci
 npm run dev                               # web on http://localhost:3000
-
-cd ../vscode-extension
-npm ci && npm run build
 ```
 
 Optional demo data (a workspace, project `DEMO`, an active sprint): `node api/scripts/seed-demo.mjs`, then sign in as `demo@synqonix.local` / `demo-password-123`.
@@ -40,10 +37,6 @@ Run each app's checks. All should pass with no failures.
 | api | `npm run test:e2e` (needs Postgres; **wipes the dev database's users/workspaces**, so use a throwaway DB or the demo DB) | 309 tests, about 10 minutes |
 | web | `npm run lint && npm run typecheck && npm test` | 77 unit tests pass |
 | web | `npm run build && npm start`, then in another terminal `npm run test:e2e` (API must run with `THROTTLE_DISABLED=1`; set `CHROMIUM_PATH` if Playwright can't find a browser, or run `npx playwright install chromium` first) | 9 browser tests pass |
-| vscode-extension | `npm run lint && npm run typecheck && npm test` | 30 unit tests pass |
-| vscode-extension | `npm run test:e2e` (API running on :4000) | 12 tests pass |
-| vscode-extension | `npm run test:vscode` (downloads VS Code; **never run in the sandbox, so this is the first real run**) | smoke test passes |
-| vscode-extension | `npm run package` | produces a `.vsix` |
 
 ## 3. Manual checklist
 
@@ -114,20 +107,7 @@ Run each app's checks. All should pass with no failures.
 - [ ] Automation rule: for example "when a bug is created, set priority to High"; create a bug and verify; history shows "Automation ran …".
 
 ### 3.10 VS Code extension
-Open `vscode-extension/` in VS Code and press **F5** (Run Extension). In the new window open a folder that is a git repo.
-- [ ] Activity bar shows **Synqonix** with a sign-in welcome view. Settings `synqonix.apiUrl` / `synqonix.webUrl` default to localhost.
-- [ ] **Synqonix: Sign in** opens the browser to "Connect VS Code?"; approve; the editor comes back signed in and asks for a workspace if you have several.
-- [ ] Also test **Sign in with an API token** (paste a `sqx_…` token).
-- [ ] The trees show My tasks, Active sprint, Backlog and Recent (pick a project with the toolbar button for sprint and backlog).
-- [ ] Click a task: the task page opens with description, comments and activity. Change status and priority; add a comment; check it in the web app.
-- [ ] Right-click a task, **Start task**: a branch like `demo-1-short-title` is created and checked out, the task is assigned to you and moved to In Progress, the status bar shows `DEMO-1`, and the Source Control message box is prefilled.
-- [ ] Run Start task again from another branch: it switches to the existing branch. With a dirty working tree it asks first.
-- [ ] Start/stop the timer from the status bar; the web app shows the logged time.
-- [ ] Create a task from the toolbar; search tasks; open in browser.
-- [ ] Switch branches manually to one containing a task key: the status bar follows.
-- [ ] Notifications: from the web app assign a task to yourself from another user; a toast appears within about a minute (interval is `synqonix.notifications.intervalSeconds`).
-- [ ] Offline: stop the API, refresh: trees show "Offline, showing data from …". Restart the API and refresh to recover.
-- [ ] Revoke the token in the web app, then refresh: you are signed out with a prompt. **Sign out** clears everything.
+The extension now lives in its own repository ([synqonix-vscode-extension](https://github.com/Synqonix/synqonix-vscode-extension)) and has its own test plan. Against this API, check at least: sign in from the browser (**Connect VS Code?** page) and with an API token, then open a task and start the timer.
 
 ### 3.11 Security and hardening
 - [ ] Response headers (browser dev tools, Network, any page): `Content-Security-Policy` with a `nonce-…`, `X-Frame-Options: DENY`, and no `unsafe-inline` for scripts. The console shows no CSP errors while clicking around.

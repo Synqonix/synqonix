@@ -38,7 +38,7 @@ It is self-hostable, runs on a small free-tier stack for a single team, and its 
 - **Notifications and search** — in-app inbox, email digests, muting; one search across tasks, comments, messages and people (only what you may see).
 - **Reports and automation** — workspace and project reports, CSV/Jira/GitHub import and CSV export, outbound webhooks (HMAC-signed), automation rules, audit log.
 - **Teams and permissions** — workspaces, teams, roles (Owner, Admin, Member, Viewer), private projects, personal API tokens.
-- **VS Code extension** — task trees (mine, sprint, backlog, recent), task page, *Start task* with branch creation, status bar timer, commit-message prefill, notifications.
+- **VS Code extension** (separate repository, [synqonix-vscode-extension](https://github.com/Synqonix/synqonix-vscode-extension)) — task trees (mine, sprint, backlog, recent), task page, *Start task* with branch creation, status bar timer, commit-message prefill, notifications.
 
 <details>
 <summary>More screenshots</summary>
@@ -96,24 +96,18 @@ Emails (verification, password reset, notifications) are sent with the Resend SD
 
 ## The VS Code extension
 
-```bash
-cd vscode-extension
-npm ci && npm run build
-```
-
-Open the folder in VS Code and press **F5**, then run **Synqonix: Sign in**. Details in [`vscode-extension/README.md`](vscode-extension/README.md).
+The extension now lives in its own repository: [synqonix-vscode-extension](https://github.com/Synqonix/synqonix-vscode-extension). It talks to this API over HTTP, signing in with the browser or a personal API token.
 
 ## Repository layout
 
-Three independent apps, each with its own `package.json` and lockfile (no root package, no workspaces):
+Two independent apps, each with its own `package.json` and lockfile (no root package, no workspaces):
 
 | Folder | What it is | Stack |
 |---|---|---|
 | [`api/`](api) | REST + WebSocket API | NestJS, Prisma, PostgreSQL, Socket.IO, JWT, Resend, S3-compatible storage |
 | [`web/`](web) | Web app | Next.js (App Router), Tailwind, typed API client |
-| [`vscode-extension/`](vscode-extension) | Editor integration | TypeScript, esbuild, typed API client |
 
-The API publishes an OpenAPI document (`api/openapi.json`); `web` and `vscode-extension` generate their own typed clients from it (`npm run generate:api`). Nothing is imported across app folders.
+The API publishes an OpenAPI document (`api/openapi.json`); `web` generates its typed client from it (`npm run generate:api`). Nothing is imported across app folders.
 
 ## Deploying
 
@@ -135,7 +129,6 @@ The API publishes an OpenAPI document (`api/openapi.json`); `web` and `vscode-ex
 
 - API: unit tests plus an end-to-end suite against a real Postgres (permissions matrix over every route, realtime, GitHub webhooks, storage, and more).
 - Web: unit tests and Playwright browser tests (critical flows, CSP, accessibility scan with axe).
-- Extension: unit tests, and end-to-end tests against the real API and a real git repository.
 - Security: nonce-based Content-Security-Policy, rate limits, signed webhooks, SSRF-safe outbound webhooks, secret checks at boot, dependency audit and secret scanning in CI. See [SECURITY.md](SECURITY.md).
 
 ## Roadmap and known gaps
@@ -145,9 +138,7 @@ Synqonix is young. Things that are not done yet and good places to help:
 - Live import of issues from the GitHub API (today: through the webhook or CSV), user-defined project templates.
 - Per-workspace retention settings; more automation triggers (assignment, due dates, GitHub events); configurable dashboards.
 - Planning poker.
-- GitHub App installation should additionally verify the user with OAuth (see [SECURITY.md](SECURITY.md)).
-- Realtime updates in the VS Code extension (it polls today); publishing it to the Marketplace.
-- Running more than one API instance (needs a shared Socket.IO adapter).
+- Publishing the VS Code extension (now in its own repository) to the Marketplace and Open VSX.
 
 ## Contributing
 

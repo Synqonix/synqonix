@@ -15,7 +15,7 @@ npm run start:dev                                # http://localhost:4000/api/v1/
 | `npm test` / `npm run test:e2e` | unit / e2e tests (e2e needs Postgres) |
 | `npm run lint`, `npm run typecheck` | static checks |
 | `npm run prisma:migrate` | create/apply migrations |
-| `npm run generate:openapi` | write `openapi.json` (consumed by `web/` and `vscode-extension/`) |
+| `npm run generate:openapi` | write `openapi.json` (consumed by `web/`) |
 
 Swagger UI: `http://localhost:4000/docs`.
 

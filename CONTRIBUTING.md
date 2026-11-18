@@ -10,7 +10,7 @@ Thanks for helping! This guide covers how to set up, what we expect from a chang
 
 ## Repository layout
 
-Three independent apps — `api/`, `web/`, `vscode-extension/` — each with its **own `package.json` and lockfile**. Please do **not** add a root `package.json` or npm workspaces. Use **npm** (CI runs `npm ci`); if a peer-dependency conflict appears, fix versions rather than committing a different package manager.
+Two independent apps — `api/` and `web/` — each with its **own `package.json` and lockfile**. Please do **not** add a root `package.json` or npm workspaces. Use **npm** (CI runs `npm ci`); if a peer-dependency conflict appears, fix versions rather than committing a different package manager.
 
 ## Setup
 
@@ -30,7 +30,7 @@ npm run build
 Also:
 
 - **API changes:** run `npm run test:e2e` in `api/` (needs Postgres; it wipes users and workspaces in the database it points at, so use a throwaway one).
-- **Endpoint changes:** run `npm run generate:openapi` in `api/`, then `npm run generate:api` in `web/` and `vscode-extension/`, and commit the results. Cross-app contracts go through `api/openapi.json` only.
+- **Endpoint changes:** run `npm run generate:openapi` in `api/`, then `npm run generate:api` in `web/`, and commit the results. The VS Code extension lives in [its own repository](https://github.com/Synqonix/synqonix-vscode-extension) and does not read `openapi.json`, so keep the endpoints it relies on backwards compatible.
 - **Database changes:** add a Prisma migration (`npm run prisma:migrate`); migrations must be additive and safe to apply to a running system.
 - **Web changes:** UI should work in light and dark mode and by keyboard; `npm run test:e2e` in `web/` runs the browser and accessibility tests against a running stack.
 - Add tests for behaviour you add or fix. Permission checks especially: every new route is covered by the route matrix test in `api/test/security.e2e-spec.ts`, which fails if a route is reachable without authentication unless you list it as public on purpose.
@@ -44,4 +44,4 @@ Also:
 
 ## Code style
 
-Follow the surrounding code: naming, comment density, and idiom. Linters and formatters (`oxlint` for the API, ESLint for web and extension, Prettier configs where present) are the source of truth.
+Follow the surrounding code: naming, comment density, and idiom. Linters and formatters (`oxlint` for the API, ESLint for web, Prettier configs where present) are the source of truth.

@@ -4,13 +4,12 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Overview
 
-Synqonix is a self-hostable, developer-focused project manager (tasks, sprints, chat, GitHub integration) with a VS Code extension. It is **three independent apps**, each with its own `package.json` and lockfile. There is no root package and no npm workspaces — do not add either. Use npm (CI runs `npm ci`). Node 22.
+Synqonix is a self-hostable, developer-focused project manager (tasks, sprints, chat, GitHub integration) with a VS Code extension that lives in its own repository (https://github.com/Synqonix/synqonix-vscode-extension) and talks to the API over HTTP. This repo is **two independent apps**, each with its own `package.json` and lockfile. There is no root package and no npm workspaces — do not add either. Use npm (CI runs `npm ci`). Node 22.
 
 | Folder | Stack |
 |---|---|
 | `api/` | NestJS (ESM, `.js` import suffixes in TS), Prisma + PostgreSQL 17, Socket.IO, JWT |
 | `web/` | Next.js App Router (v16, React 19), Tailwind |
-| `vscode-extension/` | TypeScript bundled with esbuild, talks to the API over HTTP |
 
 `web/CLAUDE.md` / `web/AGENTS.md` warn that this Next.js version has breaking changes: read the relevant guide in `web/node_modules/next/dist/docs/` before writing Next code.
 
@@ -32,15 +31,10 @@ Dev infrastructure (Postgres :5432 + Dev-Remail :6245, a local Resend-compatible
 - `npm run test:e2e` — Playwright against a running built web app + API started with `THROTTLE_DISABLED=1` (also CSP and axe accessibility checks)
 - `npm run generate:api` — regenerate `src/lib/api/schema.d.ts` from `../api/openapi.json`
 
-**vscode-extension/**
-- `npm run build` / `watch` (esbuild), `npm test`, `npm run lint`, `npm run typecheck`
-- `npm run test:e2e` (needs API on :4000), `npm run test:vscode` (downloads VS Code), `npm run package` (.vsix); press F5 in VS Code to debug
-- `npm run generate:api` — regenerate `src/api/schema.d.ts`
-
 ## Architecture
 
 ### Cross-app contract
-`api/openapi.json` is the only link between apps; nothing is imported across folders. After changing any endpoint/DTO: `npm run generate:openapi` in `api/`, then `npm run generate:api` in `web/` and `vscode-extension/`, and commit all generated files.
+`api/openapi.json` is the only link between apps; nothing is imported across folders. After changing any endpoint/DTO: `npm run generate:openapi` in `api/`, then `npm run generate:api` in `web/`, and commit all generated files. The VS Code extension is a separate repository that does not read `openapi.json`; keep the endpoints it uses (tasks, comments, timer, notifications, search, projects, workspaces, members) backwards compatible.
 
 ### API (`api/src`)
 - `app.module.ts` wires one Nest module per domain (auth, workspaces, projects, tasks, agile, channels, github, notifications, search, time, insights, dataio, templates, webhooks, automation, retention, views, realtime, storage, mail, audit). Controllers + services + `dto/` per module; env is validated at boot in `config/env.ts` (bad/missing secrets fail startup). A global rate-limit guard applies everywhere.
@@ -55,11 +49,8 @@ Dev infrastructure (Postgres :5432 + Dev-Remail :6245, a local Resend-compatible
 - `app/` has `(auth)` and `(app)` route groups. Each `page.tsx` is a small server component that exports `metadata` (title) and renders the client `view.tsx` beside it; data is fetched in the browser because the session lives there (access token in localStorage, refresh token in an httpOnly API cookie). `proxy.ts` is the Next 16 request proxy (nonce-based CSP lives in `lib/csp.ts`). Feature components are grouped by domain in `components/` (tasks, views, agile, chat, github, …); `components/ui` holds primitives.
 - `lib/api/client.ts` is the typed API client over the generated `schema.d.ts`; `lib/use-query.ts` is the data-fetching hook on TanStack Query (`useQuery([endpointPath, callSiteTag, ...deps], fetcher)`; the cache is cleared on sign-out); `lib/realtime.ts` + `use-project-events.ts` + `components/chat/chat-provider.tsx` handle Socket.IO updates. Domain logic in `lib/*.ts` is pure with colocated `*.test.ts`.
 
-### VS Code extension (`vscode-extension/src`)
-- `core/` is VS Code-independent logic (API client, auth, cache, git helpers, service layer, notifications poller, and `live.ts`, a Socket.IO connection with the API token that triggers instant inbox checks and tree refreshes, with polling as the fallback); `ui/` holds VS Code bindings (trees, task webview panel, status bar timer, commands). `test/fake-vscode.ts` lets unit/e2e tests run without VS Code. Commands/views/settings are declared in `package.json` `contributes`.
-
 ## Conventions
-- Follow surrounding code style (oxlint for api, ESLint for web/extension, Prettier configs where present). Use imperative commit messages.
+- Follow surrounding code style (oxlint for api, ESLint for web, Prettier configs where present). Use imperative commit messages.
 - Add tests for behavior changes; permission checks especially.
 - UI must work in light/dark mode and by keyboard.
 - Deployment/config docs live in `docs/` (`deployment.md`, `test-plan.md`, `github-integration.md`); `docker-compose.prod.yml` is the production stack.

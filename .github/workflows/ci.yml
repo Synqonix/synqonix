@@ -67,24 +67,6 @@ jobs:
           npm run generate:api
           git diff --exit-code -- src/lib/api/schema.d.ts || { echo "::error::web/src/lib/api/schema.d.ts is out of date: run 'npm run generate:api' in web/ and commit it"; exit 1; }
 
-  vscode-extension:
-    runs-on: ubuntu-latest
-    defaults: { run: { working-directory: vscode-extension } }
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with: { node-version: 22, cache: npm, cache-dependency-path: vscode-extension/package-lock.json }
-      - run: npm ci
-      - run: npm audit --omit=dev --audit-level=high
-      - run: npm run lint
-      - run: npm run typecheck
-      - run: npm test
-      - run: npm run build
-      - name: generated API types match api/openapi.json
-        run: |
-          npm run generate:api
-          git diff --exit-code -- src/api/schema.d.ts || { echo "::error::vscode-extension/src/api/schema.d.ts is out of date: run 'npm run generate:api' in vscode-extension/ and commit it"; exit 1; }
-
   web-e2e:
     runs-on: ubuntu-latest
     needs: [api, web]

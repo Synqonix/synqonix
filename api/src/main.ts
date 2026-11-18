@@ -29,7 +29,7 @@ async function bootstrap() {
   const swagger = config.get('SWAGGER_ENABLED') ?? (config.get('NODE_ENV') === 'production' ? '0' : '1');
   if (swagger === '1') SwaggerModule.setup('docs', app, document);
 
-  // `npm run generate:openapi` writes the spec consumed by web/ and vscode-extension/.
+  // `npm run generate:openapi` writes the spec consumed by web/.
   if (process.env.OPENAPI_EXPORT) {
     writeFileSync('openapi.json', JSON.stringify(document, null, 2));
     await app.close();

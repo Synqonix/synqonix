@@ -17,7 +17,7 @@
 - **Automation**: project settings → rules; **webhooks** and **API tokens** for integrations (API reference at `/docs` on the API).
 
 ## In VS Code
-Install the Synqonix extension, run *Synqonix: Sign in*, then right-click a task → *Start task* to get a branch named after it, with the task assigned to you and moved to In Progress. See `vscode-extension/README.md`.
+Install the Synqonix extension, run *Synqonix: Sign in*, then right-click a task → *Start task* to get a branch named after it, with the task assigned to you and moved to In Progress. See the extension's README in its own repository, [synqonix-vscode-extension](https://github.com/Synqonix/synqonix-vscode-extension).
 
 ## Security tips
 - Revoke API tokens you no longer use under *Settings → Security*. Changing your password signs out your other devices.

@@ -16,6 +16,6 @@ Authorization checks on every route (covered by an automated route matrix), nonc
 
 ## Known limitations
 
-- **GitHub App installation:** the install redirect trusts a signed state plus an installation id from the query string and does not yet verify the user with GitHub OAuth. On a shared instance, someone who knows a not-yet-connected installation id could attach it to their own workspace. Until this is fixed, do not rely on the integration for sensitive repositories on instances with untrusted users.
+- **GitHub App installation:** connecting an installation requires the person to administer it on GitHub (account owner, or organization owner), checked through GitHub's own authorization during installation. The GitHub App must have "Request user authorization (OAuth) during installation" enabled and the organization permission "Members: read" (see [docs/github-integration.md](docs/github-integration.md)).
 - Access tokens are stored in the browser's `localStorage` (the strict CSP is the mitigation); the refresh token is also returned to non-browser clients.
-- Running more than one API instance is not supported (realtime and schedulers assume one process).
+- Running more than one API instance requires `REDIS_URL` (shared Socket.IO adapter, rate limits and scheduled jobs). Without it, realtime and schedulers assume a single process.
